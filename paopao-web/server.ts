@@ -193,9 +193,25 @@ async function callInfiniSynapse(
     }, (res) => {
       let buffer = '';
       let finalAnswer = '';
-      // 暂存：say=text 完整消息可能是 Agent 任务中的过程文本，不能立即返回
       let tentativeAnswer = '';
       let receivedCompletion = false;
+      // 静默兜底：收到阶段答案后持续 25 秒无结束信号则返回暂存答案，避免无限等待
+      let silenceTimer: NodeJS.Timeout | null = null;
+      const armSilenceTimer = () => {
+        if (silenceTimer) clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          if (finalAnswer || tentativeAnswer) {
+            abortController.abort();
+            resolve(finalAnswer || tentativeAnswer);
+          }
+        }, 25000);
+      };
+      // 每次产生新的最终答案都重新计时
+      const bumpTentative = (v: string) => {
+        tentativeAnswer = v;
+        finalAnswer = v;
+        armSilenceTimer();
+      };
 
       res.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
@@ -242,6 +258,8 @@ async function callInfiniSynapse(
               // 暂存即可，真正的最终答案由 completion_result 结束信号携带。
               if (msg.say === 'text' && msg.partial === false && msg.text) {
                 tentativeAnswer = msg.text;
+                // 新答案产生 → 重置 25 秒静默兜底，防止只发 text 不发 completion_result 时无限挂起
+                armSilenceTimer();
               }
 
               // completion_result 结束信号：等待 partial=false 的最终文本后 resolve
