@@ -47,6 +47,131 @@ const DOWN = '#0ca678';
 const colorOf = (v: number) => (v >= 0 ? UP : DOWN);
 const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 
+/* ----------------------------- 轻量 Markdown 渲染 ----------------------------- */
+
+/** 行内粗体 / 代码：**x** → <strong> */
+function renderInline(line: string): ReactNode[] {
+  const parts = line.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={i} className="font-bold text-gray-900">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
+}
+
+/** 解析 Markdown 文本为 React 块（标题 / 表格 / 列表 / 段落） */
+function MarkdownText({ text }: { text: string }) {
+  const lines = text.split('\n');
+  const blocks: ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // 表格：连续行以 | 开头且偶数行成分隔线
+    if (trimmed.startsWith('|') && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1].trim()) && lines[i + 1].includes('-')) {
+      const headerCells = trimmed
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((c) => c.trim());
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(
+          lines[i]
+            .trim()
+            .replace(/^\|/, '')
+            .replace(/\|$/, '')
+            .split('|')
+            .map((c) => c.trim()),
+        );
+        i++;
+      }
+      blocks.push(
+        <div key={`t-${blocks.length}`} className="my-2 overflow-x-auto">
+          <table className="w-full border-collapse text-[12px]">
+            <thead>
+              <tr>
+                {headerCells.map((c, idx) => (
+                  <th key={idx} className="bg-gray-50 px-2 py-1.5 text-left font-bold text-gray-700 border border-gray-100">
+                    {renderInline(c)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="px-2 py-1.5 border border-gray-100 text-gray-700">
+                      {renderInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+
+    // 标题
+    const heading = trimmed.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const Tag = (level <= 2 ? 'h3' : 'h4') as 'h3' | 'h4';
+      blocks.push(
+        <Tag key={`h-${blocks.length}`} className="mt-3 mb-1 font-bold text-gray-900 first:mt-0 text-[14px]">
+          {renderInline(heading[2])}
+        </Tag>,
+      );
+      i++;
+      continue;
+    }
+
+    // 列表（- 开头）
+    if (/^\s*[-*]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\s*[-*]\s+/, ''));
+        i++;
+      }
+      blocks.push(
+        <ul key={`l-${blocks.length}`} className="my-1.5 space-y-0.5 pl-4 list-disc text-[13px] text-gray-700">
+          {items.map((item, idx) => (
+            <li key={idx}>{renderInline(item)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    // 空行 → 段落间隔
+    if (!trimmed) {
+      i++;
+      continue;
+    }
+
+    // 普通段落
+    blocks.push(
+      <p key={`p-${blocks.length}`} className="my-1.5 text-[13px] leading-6 text-gray-700 first:mt-0">
+        {renderInline(trimmed)}
+      </p>,
+    );
+    i++;
+  }
+
+  return <div className="space-y-0.5">{blocks}</div>;
+}
+
 function findStockSector(code: string) {
   return heatSectors.find((s) => s.stocks.some((st) => st.code === code));
 }
@@ -342,7 +467,7 @@ function ReplyCard({
 }) {
   return (
     <div className="rounded-2xl rounded-tl-md border border-[#e8eaed] bg-white px-4 py-3 text-sm leading-relaxed text-gray-800 shadow-sm">
-      {reply.text && <p>{reply.text}</p>}
+      {reply.text && <MarkdownText text={reply.text} />}
 
       {/* 结构化卡片 */}
       {reply.cards.length > 0 && (
