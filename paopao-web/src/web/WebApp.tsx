@@ -8,10 +8,11 @@
  *  - 内容区：渲染对应页面（今日大盘已完整实现，其余为建设中占位）
  */
 
-import { useState, useEffect } from 'react';
-import { Compass, Star, MessageSquare, User, Search, Home, Bell, Construction } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Compass, Star, MessageSquare, User, Search, Home, Construction, TrendingUp, TrendingDown, Grid3x3 } from 'lucide-react';
 import { StockItem } from '../types';
 import { formatChineseDate, mockUserProfile } from '../data';
+import { heatSectors } from './mockWebData';
 import { BrainMark } from './BrainMark';
 import { TodayMarketPage } from './TodayMarketPage';
 import { MarketMapPage } from './MarketMapPage';
@@ -69,6 +70,29 @@ function WebAppShell() {
   const [authOpen, setAuthOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<WebNav>('today');
   const [prefilledStock, setPrefilledStock] = useState<{ name: string; code: string } | null>(null);
+  // 顶栏搜索
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  // 顶栏搜索跳转定位：切到市场地图后让 MarketMapPage 选中对应板块/个股
+  const [mapTarget, setMapTarget] = useState<{ sectorId?: string | null; stockCode?: string | null } | null>(null);
+
+  // 搜索：同时匹配板块名 / 板块ID / 个股名 / 个股代码
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return { sectors: [], stocks: [] };
+    const sectors = heatSectors
+      .filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+      .slice(0, 4);
+    const stocks: Array<{ stock: StockItem; sectorId: string; sectorName: string }> = [];
+    for (const s of heatSectors) {
+      for (const st of s.stocks) {
+        if (st.name.toLowerCase().includes(q) || st.code.toLowerCase().includes(q)) {
+          stocks.push({ stock: st, sectorId: s.id, sectorName: s.name });
+        }
+      }
+    }
+    return { sectors, stocks: stocks.slice(0, 6) };
+  }, [searchQuery]);
   const [followedStocks, setFollowedStocks] = useState<StockItem[]>([
     { name: '科大讯飞', code: '002230.SZ', price: 45.12, changePercent: 2.85, volume: '28.9万手', turnover: '13.0亿元', history: [] },
     { name: '中芯国际', code: '688981.SH', price: 53.42, changePercent: 4.21, volume: '38.4万手', turnover: '20.3亿元', history: [] },
@@ -91,6 +115,14 @@ function WebAppShell() {
   };
 
   const openAi = () => setActiveNav('ai');
+
+  // 点击搜索结果：切到市场地图，并定位到对应板块 / 个股
+  const handleSearchSelect = (target: { sectorId?: string | null; stockCode?: string | null }) => {
+    setMapTarget(target);
+    setActiveNav('map');
+    setSearchQuery('');
+    setSearchFocused(false);
+  };
 
   return (
     <div className="flex min-h-screen bg-[#f5f6f8] font-sans text-gray-900">
@@ -137,10 +169,7 @@ function WebAppShell() {
                 <p className="text-[10px] text-slate-400">已登录 · 可在个人中心退出</p>
               </>
             ) : (
-              <>
-                <p className="truncate text-xs font-semibold text-white">{mockUserProfile.name}</p>
-                <p className="text-[10px] text-slate-400">{mockUserProfile.riskTolerance}</p>
-              </>
+              <p className="truncate text-xs font-semibold text-white">{mockUserProfile.name}</p>
             )}
           </div>
         </div>
@@ -155,17 +184,105 @@ function WebAppShell() {
             <p className="text-[11px] text-gray-400">{formatChineseDate(new Date())} · 泡泡看市 Web 端</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-xl border border-[#e8eaed] bg-[#f7f8fa] px-3 py-2 lg:w-64">
-              <Search size={15} className="text-gray-400" />
-              <input
-                className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
-                placeholder="搜索股票 / 板块"
-              />
+            {/* 顶栏搜索：支持板块 / 个股实时搜索 */}
+            <div className="relative lg:w-72">
+              <div className="flex items-center gap-2 rounded-xl border border-[#e8eaed] bg-[#f7f8fa] px-3 py-2 transition-colors focus-within:border-indigo-300 focus-within:bg-white">
+                <Search size={15} className="shrink-0 text-gray-400" />
+                <input
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setSearchFocused(true);
+                  }}
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                  className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
+                  placeholder="搜索股票 / 板块"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSearchFocused(true);
+                    }}
+                    className="shrink-0 text-[10px] font-semibold text-gray-400 hover:text-gray-600"
+                  >
+                    清空
+                  </button>
+                )}
+              </div>
+
+              {/* 搜索下拉结果 */}
+              {searchFocused && searchQuery.trim() && (
+                <div className="absolute right-0 top-full z-50 mt-1.5 w-80 overflow-hidden rounded-xl border border-[#e8eaed] bg-white shadow-lg">
+                  {searchResults.sectors.length === 0 && searchResults.stocks.length === 0 ? (
+                    <p className="px-4 py-3 text-[12px] text-gray-400">未找到「{searchQuery.trim()}」相关板块或个股</p>
+                  ) : (
+                    <div className="custom-scrollbar max-h-80 overflow-y-auto py-1">
+                      {searchResults.sectors.length > 0 && (
+                        <>
+                          <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">板块</p>
+                          {searchResults.sectors.map((s) => {
+                            const up = s.changePercent >= 0;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleSearchSelect({ sectorId: s.id })}
+                                className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-indigo-50/50"
+                              >
+                                <Grid3x3 size={14} className="shrink-0 text-indigo-500" />
+                                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-gray-800">{s.name}</span>
+                                <span className={`font-mono text-[11px] font-semibold ${up ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  {up ? '+' : ''}{s.changePercent.toFixed(2)}%
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                      {searchResults.stocks.length > 0 && (
+                        <>
+                          <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">个股</p>
+                          {searchResults.stocks.map(({ stock, sectorName }) => {
+                            const up = stock.changePercent >= 0;
+                            return (
+                              <button
+                                key={stock.code}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleSearchSelect({ stockCode: stock.code })}
+                                className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-indigo-50/50"
+                              >
+                                <span
+                                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                                    up ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
+                                  }`}
+                                >
+                                  {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-[13px] font-medium text-gray-800">{stock.name}</span>
+                                  <span className="block font-mono text-[10px] text-gray-400">
+                                    {stock.code} · {sectorName}
+                                  </span>
+                                </span>
+                                <span className={`font-mono text-[11px] font-semibold ${up ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  {up ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <button className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-[#e8eaed] bg-white text-gray-500 transition-colors hover:text-indigo-600">
-              <Bell size={16} />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-500" />
-            </button>
             {auth.isLoggedIn && auth.session ? (
               <button
                 disabled
@@ -193,7 +310,7 @@ function WebAppShell() {
           {activeNav === 'today' ? (
             <TodayMarketPage followedStocks={followedStocks} onAskTeacherAboutStock={handleAskTeacher} />
           ) : activeNav === 'map' ? (
-            <MarketMapPage onAskTeacherAboutStock={handleAskTeacher} />
+            <MarketMapPage onAskTeacherAboutStock={handleAskTeacher} initialTarget={mapTarget} />
           ) : activeNav === 'ai' ? (
             <AiBubblePage prefill={prefilledStock} onAskTeacherAboutStock={handleAskTeacher} />
           ) : activeNav === 'watchlist' ? (

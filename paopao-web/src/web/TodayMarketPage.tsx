@@ -5,9 +5,9 @@
  * 今日大盘（Web 端 / 桌面）
  * 设计基线：v3 高保真稿
  *  - 左侧深底侧边栏 + 顶栏（在 WebApp 中）
- *  - 内容区：泡泡老师 Banner → 4 张紧凑指数卡 → 两栏网格
+ *  - 内容区：泡泡老师 Banner → 3 张紧凑横排指数卡 → 两栏网格（3:1）
  *      · 左栏：今天发生了什么（小白/专业切换 · 为什么会这样展开 · 有用/改进反馈）
- *      · 右栏：板块热力（迷你热力图）· 涨跌榜 · 我的自选
+ *      · 右栏：板块热力（迷你热力图）· 涨跌榜
  *  - A股配色：涨 #e5484d / 跌 #0ca678；边框 #eef0f3；侧边栏 #0b1120
  */
 
@@ -225,20 +225,19 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         </div>
       </motion.section>
 
-      {/* ---------------- 4 张紧凑指数卡 ---------------- */}
+      {/* ---------------- 3 张紧凑横排指数卡（压缩高度） ---------------- */}
       <motion.section
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, delay: 0.05 }}
-        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-3"
       >
         {liveIndices === null ? (
           // 加载占位：避免先显示 mock 再跳到实时的闪烁
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-xl border bg-white p-4" style={{ borderColor: BORDER }}>
-              <div className="h-3 w-16 animate-pulse rounded bg-gray-100" />
-              <div className="mt-3 h-7 w-24 animate-pulse rounded bg-gray-100" />
-              <div className="mt-2 h-4 w-20 animate-pulse rounded bg-gray-100" />
+            <div key={i} className="flex items-center justify-between rounded-xl border bg-white px-4 py-3" style={{ borderColor: BORDER }}>
+              <div className="h-6 w-24 animate-pulse rounded bg-gray-100" />
+              <div className="h-5 w-20 animate-pulse rounded bg-gray-100" />
             </div>
           ))
         ) : liveIndices.map((idx) => {
@@ -247,29 +246,25 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
           return (
             <div
               key={idx.code}
-              className="group rounded-xl border bg-white p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="group flex items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3 transition-all hover:-translate-y-0.5 hover:shadow-md"
               style={{ borderColor: BORDER }}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-500">{idx.name}</span>
+              <div className="flex min-w-0 items-center gap-2">
                 <span
-                  className="flex h-5 w-5 items-center justify-center rounded-full"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
                   style={{ background: up ? 'rgba(229,72,77,0.1)' : 'rgba(12,166,120,0.1)', color }}
                 >
-                  {up ? <TrendingUp size={12} strokeWidth={2.4} /> : <TrendingDown size={12} strokeWidth={2.4} />}
+                  {up ? <TrendingUp size={13} strokeWidth={2.4} /> : <TrendingDown size={13} strokeWidth={2.4} />}
                 </span>
+                <span className="truncate text-xs font-medium text-gray-500">{idx.name}</span>
               </div>
-              <div className="mt-2 font-mono text-2xl font-bold tracking-tight text-gray-900">
-                {idx.value.toFixed(2)}
-              </div>
-              <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="font-mono text-sm font-semibold" style={{ color }}>
+              <div className="flex shrink-0 items-baseline gap-2">
+                <span className="font-mono text-lg font-bold tracking-tight text-gray-900">
+                  {idx.value.toFixed(2)}
+                </span>
+                <span className="font-mono text-xs font-semibold" style={{ color }}>
                   {up ? '+' : ''}
                   {idx.changePercent.toFixed(2)}%
-                </span>
-                <span className="font-mono text-[11px] text-gray-400">
-                  {up ? '+' : ''}
-                  {idx.changeValue.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -277,10 +272,10 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         })}
       </motion.section>
 
-      {/* ---------------- 两栏网格 ---------------- */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      {/* ---------------- 两栏网格（3:1，左栏与指数卡同宽，右栏与热力图同宽） ---------------- */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         {/* ===== 左栏：今天发生了什么 ===== */}
-        <section className="space-y-4 lg:col-span-2">
+        <section className="space-y-4 lg:col-span-3">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-base font-bold text-gray-900">
               <Activity size={18} className="text-indigo-600" />
@@ -546,18 +541,6 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
                     </div>
                   )}
 
-                  {/* 来源（暂时注释，后续再展示） */}
-                  {/* {story.evidence.length > 0 && (
-                    <div className="mt-3 flex flex-wrap items-center gap-1 text-[10px] text-gray-400">
-                      <span>来源：</span>
-                      {Array.from(new Set(story.evidence.map((s) => s.sourceName)))
-                        .slice(0, 3)
-                        .map((name, i) => (
-                          <span key={i}>{name}</span>
-                        ))}
-                    </div>
-                  )} */}
-
                   {/* 反馈 */}
                   <div className="mt-3 flex items-center justify-end gap-1.5 border-t border-gray-50 pt-2">
                     <button
@@ -591,7 +574,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
           </div>
         </section>
 
-        {/* ===== 右栏：板块热力 / 涨跌榜 / 我的自选 ===== */}
+        {/* ===== 右栏：板块热力 / 涨跌榜 ===== */}
         <aside className="space-y-6">
           {/* 板块热力 */}
           <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
@@ -608,12 +591,12 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
                 return (
                   <div
                     key={s.id}
-                    className="flex min-h-[68px] flex-col justify-between rounded-lg border p-3 transition-transform hover:scale-[1.02]"
+                    className="flex min-h-[60px] flex-col justify-between rounded-lg border p-2.5 transition-transform hover:scale-[1.02]"
                     style={{ background: st.background, color: st.color, borderColor: st.border }}
                     title={`${s.name} ${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%`}
                   >
-                    <span className="text-xs font-semibold">{s.name}</span>
-                    <span className="text-right font-mono text-sm font-bold">
+                    <span className="text-[11px] font-semibold leading-4">{s.name}</span>
+                    <span className="text-right font-mono text-[13px] font-bold">
                       {s.changePercent >= 0 ? '+' : ''}
                       {s.changePercent.toFixed(2)}%
                     </span>

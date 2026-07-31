@@ -148,7 +148,7 @@ function SectorDetailCard({
       </div>
       )}
 
-      {/* 板块健康度 */}
+      {/* 板块健康度（暂注释隐藏）
       <div>
         <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
           <Shield size={13} className="text-indigo-600" />
@@ -170,6 +170,7 @@ function SectorDetailCard({
         </div>
         <p className="mt-1.5 text-center text-[10px] text-gray-400">龙头贡献度：{detail.healthMetrics.leaderContribution}</p>
       </div>
+      */}
 
       {/* 板块内部表现 */}
       <div>
@@ -354,7 +355,6 @@ function StockDetailCard({
   const colorOf = (v: number) => (v >= 0 ? UP : DOWN);
   const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
   const sorted = sector ? [...sector.stocks].sort((a, b) => b.changePercent - a.changePercent) : [];
-  const rank = sorted.findIndex((s) => s.code === stock.code) + 1;
   const isLeader = sorted.length > 0 && sorted[0].code === stock.code;
   const detail = sector ? getSectorDetail(sector.id) : null;
 
@@ -410,9 +410,7 @@ function StockDetailCard({
             </button>
           </div>
           <div className="mt-1.5 flex items-center gap-2 text-[10px] text-gray-500">
-            <span>
-              板块内排名 <b className="text-gray-800">#{rank}</b> / {sector.stocks.length}
-            </span>
+            {/* 板块内排名（暂注释隐藏） */}
             {isLeader && <span className="rounded bg-indigo-50 px-1 text-[9px] font-bold text-indigo-600">龙头</span>}
           </div>
         </div>
@@ -537,6 +535,8 @@ function stockWeight(st: StockItem) {
 
 interface MarketMapPageProps {
   onAskTeacherAboutStock: (name: string, code: string) => void;
+  /** 外部搜索跳转定位（顶栏搜索使用） */
+  initialTarget?: { sectorId?: string | null; stockCode?: string | null } | null;
 }
 
 interface SectorLayout extends Rect {
@@ -558,13 +558,27 @@ interface TooltipState {
 
 const STORAGE_KEY = 'web-market-map-followed';
 
-export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
+export function MarketMapPage({ onAskTeacherAboutStock, initialTarget }: MarketMapPageProps) {
   const [view, setView] = useState<MapView>('sector');
   const [filter, setFilter] = useState<MapFilter>('all');
   const [query, setQuery] = useState('');
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [selectedStockCode, setSelectedStockCode] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, left: 0, top: 0, stock: null });
+
+  // 外部搜索跳转：顶栏搜索到板块/个股后，切到此页并定位选中
+  useEffect(() => {
+    if (!initialTarget) return;
+    if (initialTarget.sectorId) {
+      setSelectedSectorId(initialTarget.sectorId);
+      setSelectedStockCode(null);
+      setRailTab('detail');
+    } else if (initialTarget.stockCode) {
+      setSelectedStockCode(initialTarget.stockCode);
+      setSelectedSectorId(null);
+      setRailTab('detail');
+    }
+  }, [initialTarget]);
 
   // 右侧栏页签：详情 / 领涨 / 领跌（一次只显示一个面板，避免详情展开后挤掉排行榜）
   const [railTab, setRailTab] = useState<'detail' | 'gainers' | 'losers'>('gainers');
@@ -598,18 +612,29 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
     [FEATURED_IDS, ANOMALY_IDS, followedIds]
   );
 
-  // 筛选 + 搜索后的板块
+  // 筛选 + 搜索后的板块（搜索同时匹配板块名 / 板块ID / 个股名 / 个股代码）
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return heatSectors.filter((s) => {
+    const matchedSectors = heatSectors.filter((s) => {
       const fm =
         filter === 'all' ||
         (filter === 'featured' && FEATURED_IDS.has(s.id)) ||
         (filter === 'anomaly' && ANOMALY_IDS.has(s.id)) ||
         (filter === 'followed' && followedIds.includes(s.id));
-      const qm = !q || s.name.toLowerCase().includes(q);
-      return fm && qm;
+      if (!fm) return false;
+      if (!q) return true;
+      const qm =
+        s.name.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        s.stocks.some((st) => st.name.toLowerCase().includes(q) || st.code.toLowerCase().includes(q));
+      return qm;
     });
+    if (!q) return matchedSectors;
+    // 命中个股时，将该板块的成分股收窄到匹配项，便于个股地图/排行榜联动
+    return matchedSectors.map((s) => ({
+      ...s,
+      stocks: s.stocks.filter((st) => st.name.toLowerCase().includes(q) || st.code.toLowerCase().includes(q)),
+    }));
   }, [query, filter, followedIds, FEATURED_IDS, ANOMALY_IDS]);
 
   /* -------- Treemap 布局（160×100 虚拟坐标，容器宽高比 8:5） -------- */
