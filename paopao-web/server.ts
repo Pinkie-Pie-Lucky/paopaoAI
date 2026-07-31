@@ -412,7 +412,7 @@ async function callInfiniSynapse(
 
 async function startServer() {
   const app = express();
-  const PORT = 8080;
+  const PORT = Number(process.env.PORT) || 8080;
 
   // Middleware for parsing JSON
   app.use(express.json());
