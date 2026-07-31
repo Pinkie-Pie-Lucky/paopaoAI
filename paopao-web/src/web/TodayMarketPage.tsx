@@ -90,6 +90,32 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [storyMode, setStoryMode] = useState<StoryMode>('beginner');
   const [expandedStories, setExpandedStories] = useState<Set<string>>(new Set());
   const [thumbsFeedback, setThumbsFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
+  // 今天发生了什么：优先用后端 /api/morning-report 的真实热点（Agent 基于实时行情分析生成），失败回退 mock
+  const [stories, setStories] = useState<MarketStory[]>(webStories);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setStoriesLoading(true);
+        const res = await fetch('/api/morning-report');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data?.stories) || data.stories.length === 0) return;
+        // 后端返回的 stories 已含 reasoning/teacher/professional/evidence 完整结构
+        setStories(data.stories as MarketStory[]);
+      } catch {
+        // 保持 mock
+      } finally {
+        if (!cancelled) setStoriesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 实时指数：与市场地图页共用同一份实时数据（模块级缓存保证两页一致）
   const { indices: liveIndices, isLive, marketStatus } = useLiveIndices();
   // 泡泡解读：加载中显示占位，实时数据到达后一次渲染
@@ -255,7 +281,11 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         </p>
 
         <div className="space-y-4">
-          {webStories.map((story) => {
+          {storiesLoading && stories === webStories ? (
+            <div className="rounded-2xl border bg-white p-5 text-[12px] text-gray-400" style={{ borderColor: BORDER }}>
+              泡泡正在基于实时行情分析今日热点…
+            </div>
+          ) : stories.map((story) => {
             const expanded = expandedStories.has(story.storyId);
             const reasoningSteps =
               storyMode === 'beginner' && story.teacher.simpleChain?.length
