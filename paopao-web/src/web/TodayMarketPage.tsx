@@ -546,8 +546,8 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
                     </div>
                   )}
 
-                  {/* 来源 */}
-                  {story.evidence.length > 0 && (
+                  {/* 来源（暂时注释，后续再展示） */}
+                  {/* {story.evidence.length > 0 && (
                     <div className="mt-3 flex flex-wrap items-center gap-1 text-[10px] text-gray-400">
                       <span>来源：</span>
                       {Array.from(new Set(story.evidence.map((s) => s.sourceName)))
@@ -556,7 +556,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
                           <span key={i}>{name}</span>
                         ))}
                     </div>
-                  )}
+                  )} */}
 
                   {/* 反馈 */}
                   <div className="mt-3 flex items-center justify-end gap-1.5 border-t border-gray-50 pt-2">
