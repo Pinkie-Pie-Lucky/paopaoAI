@@ -183,7 +183,8 @@ function SectorDetailCard({
         </p>
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="rounded-lg bg-[#f7f8fa] py-2">
-            <div className="font-mono text-base font-bold text-emerald-600">{detail.healthMetrics.upCount}</div>
+            {/* A股红涨绿跌：上涨数量用红色 */}
+            <div className="font-mono text-base font-bold text-rose-600">{detail.healthMetrics.upCount}</div>
             <div className="text-[10px] text-gray-400">上涨</div>
           </div>
           <div className="rounded-lg bg-[#f7f8fa] py-2">
@@ -617,7 +618,11 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
             medianChange: '--',
             leaderContribution: data.healthMetrics?.leaderContribution ?? '--',
             divergence: 'moderate',
-            upRatio: data.healthMetrics?.upRatio ?? 0,
+            // upRatio 后端在 heatMetrics.upRatio 返回；若缺失则用 upCount/totalCount 兜底计算
+            upRatio:
+              data.healthMetrics?.upRatio ??
+              data.heatMetrics?.upRatio ??
+              (data.healthMetrics?.totalCount ? Math.round(((data.healthMetrics.upCount || 0) / data.healthMetrics.totalCount) * 100) : 0),
           },
           leadingStocks: Array.isArray(data.leadingStocks) ? data.leadingStocks : [],
           laggingStocks: Array.isArray(data.laggingStocks) ? data.laggingStocks : [],
