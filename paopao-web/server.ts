@@ -67,7 +67,8 @@ async function callInfiniSynapse(
       signal: abortController.signal,
     }, (res) => {
       let buffer = '';
-      let collectedText = '';
+      let finalAnswer = '';
+      let receivedCompletion = false;
 
       res.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
@@ -95,6 +96,11 @@ async function callInfiniSynapse(
           try {
             const data = JSON.parse(currentData);
 
+            // 捕获任务 ID（平台从 SSE 事件下发，POST 响应体没有）
+            if (data.taskId && !resultMeta.taskId) {
+              resultMeta.taskId = String(data.taskId);
+            }
+
             // state.ready → 状态就绪
             if (currentEvent === 'state.ready' || data.type === 'state.ready') {
               stateReadyReceived = true;
@@ -104,14 +110,37 @@ async function callInfiniSynapse(
             if (currentEvent === 'message.add' || currentEvent === 'message.partial' || data.type === 'message.add' || data.type === 'message.partial') {
               // data.message 的结构：{ taskId, message: { type, text, say, ask, ... } }
               const msg = data.message || data.message?.message || {};
-              if (msg.text) {
-                collectedText += msg.text;
+
+              // 只保留最终答案：say=text 且 partial=false；忽略 reasoning / api_req_started 等中间过程
+              if (msg.say === 'text' && msg.partial === false && msg.text) {
+                finalAnswer = msg.text;
+                // 一旦拿到完整 text，立即收尾
+                abortController.abort();
+                resolve(finalAnswer);
+                return;
               }
 
-              // completion_result 检测：message.say=completion_result 或 message.ask=completion_result
-              if (msg.say === 'completion_result' || msg.ask === 'completion_result') {
+              // completion_result 结束信号：等待 partial=false 的最终文本后 resolve
+              if (msg.say === 'completion_result') {
+                if (msg.partial === false) {
+                  if (msg.text && msg.text !== 'null') finalAnswer = msg.text;
+                  abortController.abort();
+                  resolve(finalAnswer);
+                  return;
+                }
+                // 中间态：不断用非空文本更新 finalAnswer
+                if (msg.text && msg.text !== 'null') {
+                  finalAnswer = msg.text;
+                }
+              }
+
+              // ask completion_result（task 最终收尾）—— 取最终文本后 resolve
+              if (msg.ask === 'completion_result') {
+                if (msg.partial !== true && msg.text && msg.text !== 'null') {
+                  finalAnswer = msg.text;
+                }
                 abortController.abort();
-                resolve(collectedText);
+                resolve(finalAnswer);
                 return;
               }
             }
@@ -125,10 +154,16 @@ async function callInfiniSynapse(
 
             // 兜底：直接在 data 层检查 completion_result
             if (data.message?.say === 'completion_result' || data.message?.ask === 'completion_result') {
-              abortController.abort();
-              resolve(collectedText);
-              return;
+              if (data.message?.partial === false) {
+                if (data.message?.text && data.message?.text !== 'null') {
+                  finalAnswer = data.message.text;
+                }
+                abortController.abort();
+                resolve(finalAnswer);
+                return;
+              }
             }
+
           } catch {
             // 忽略解析失败的行
           }
@@ -136,8 +171,8 @@ async function callInfiniSynapse(
       });
 
       res.on('end', () => {
-        if (collectedText) {
-          resolve(collectedText);
+        if (finalAnswer) {
+          resolve(finalAnswer);
         } else {
           reject(new Error('SSE connection ended without completion'));
         }
