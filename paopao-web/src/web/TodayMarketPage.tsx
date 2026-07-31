@@ -91,7 +91,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [expandedStories, setExpandedStories] = useState<Set<string>>(new Set());
   const [thumbsFeedback, setThumbsFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   // 实时指数：与市场地图页共用同一份实时数据（模块级缓存保证两页一致）
-  const { indices: liveIndices, isLive } = useLiveIndices();
+  const { indices: liveIndices, isLive, marketStatus } = useLiveIndices();
   // 泡泡解读：加载中显示占位，实时数据到达后一次渲染
   const [liveHeadline, setLiveHeadline] = useState<string | null>(null);
 
@@ -168,8 +168,10 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
             <span className="text-[10px] font-medium text-rose-400">{marketTemperature.label}</span>
           </div>
           <div className="flex items-center gap-1.5 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            <span className="text-[10px] font-semibold text-emerald-600">盘中</span>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: marketStatus?.isOpen ? '#10b981' : marketStatus?.isOpen === false ? '#f59e0b' : '#10b981' }} />
+            <span className="text-[10px] font-semibold text-emerald-600">
+              {marketStatus ? marketStatus.label.replace(/^—\s*/, '') : '盘中'}
+            </span>
             <span className="text-[10px] text-emerald-500">{formatChineseDate(new Date())}</span>
           </div>
         </div>

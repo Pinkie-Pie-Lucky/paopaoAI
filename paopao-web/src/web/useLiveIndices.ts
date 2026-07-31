@@ -32,15 +32,23 @@ function fetchMarketOverview() {
   return cachedOverviewPromise;
 }
 
+export interface MarketStatusInfo {
+  isOpen: boolean;
+  phase: string;
+  label: string;
+}
+
 export interface LiveIndicesState {
   /** null=加载中；加载完成前不渲染 mock，避免 mock→实时跳变闪烁 */
   indices: LiveIndex[] | null;
   /** 是否来自实时接口；拉取失败回退 mock 时为 false */
   isLive: boolean;
+  /** 市场状态（盘中/午休/收盘/周末等），来自后端 getMarketStatus */
+  marketStatus: MarketStatusInfo | null;
 }
 
 export function useLiveIndices(): LiveIndicesState {
-  const [state, setState] = useState<LiveIndicesState>({ indices: null, isLive: false });
+  const [state, setState] = useState<LiveIndicesState>({ indices: null, isLive: false, marketStatus: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -67,10 +75,16 @@ export function useLiveIndices(): LiveIndicesState {
             changeValue: Number.isFinite(changeValue) ? changeValue : 0,
           };
         });
-        if (!cancelled) setState({ indices: merged, isLive: true });
+        if (!cancelled) {
+          setState({
+            indices: merged,
+            isLive: true,
+            marketStatus: data?.marketStatus ?? null,
+          });
+        }
       } catch {
         // 拉取失败：回退静态 mock 一次性渲染（不再二次跳变）
-        if (!cancelled) setState({ indices: webIndices, isLive: false });
+        if (!cancelled) setState({ indices: webIndices, isLive: false, marketStatus: null });
       }
     })();
     return () => {
