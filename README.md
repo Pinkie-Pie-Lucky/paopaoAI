@@ -9,7 +9,7 @@
 | **今日大盘** | 三大指数实时行情、市场温度、泡泡解读；「今天发生了什么」由 Agent 基于实时行情自动生成 3 个最值得关注的热点故事（含因果链 / 小白与专业双版解读 / 证据评分） |
 | **AI 泡泡** | 基于 InfiniSynapse Agent 的深度投研问答：个股分析、板块研判、市场情绪，支持 Markdown 排版渲染 |
 | **市场地图** | 领涨 / 领跌 / 泡泡精选真实板块热力图（面积按涨跌幅加权），点击板块展示完整详情（成分股 / 产业链 / 新闻 / 多周期涨跌） |
-| **月度报告** | Agent 一键生成大盘深度解析报告 |
+
 
 ## 🏗️ 架构
 
@@ -21,7 +21,6 @@
         │  HTTP
         ▼
 Express 后端 (server.ts)
-  ├── 东方财富 / 腾讯行情实时 API（免 Key）
   ├── InfiniSynapse Agent 层（SSE 长任务）
   ├── 节假日/午休/收盘交易时段判断
   └── 15 分钟自动刷新（仅交易时段）
@@ -61,7 +60,6 @@ npm start       # 运行 server.cjs
 - **前端**：React 19、TypeScript、Vite 6、TailwindCSS 4、Recharts、Motion
 - **后端**：Express、Node HTTP/HTTPS
 - **AI**：InfiniSynapse Server API（SSE Agent 任务）
-- **数据**：东方财富 / 腾讯行情实时接口（免 Key）
 
 ## ⚠️ 免责声明
 
