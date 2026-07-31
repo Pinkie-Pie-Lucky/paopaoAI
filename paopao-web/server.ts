@@ -206,6 +206,17 @@ async function callInfiniSynapse(
           }
         }, 25000);
       };
+      // 全局总超时：无论是否收到任何消息，90 秒后强制结束，防止 SSE 永久挂起
+      // 注意：必须 resolve 而非 reject，避免出现内容时的超时被当成失败
+      const globalTimeout = setTimeout(() => {
+        if (finalAnswer || tentativeAnswer) {
+          abortController.abort();
+          resolve(finalAnswer || tentativeAnswer);
+        } else {
+          abortController.abort();
+          reject(new Error('InfiniSynapse timeout: no response within 90s'));
+        }
+      }, 90000);
       // 每次产生新的最终答案都重新计时
       const bumpTentative = (v: string) => {
         tentativeAnswer = v;
