@@ -853,6 +853,12 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
             <span className="ml-auto text-[10px] text-gray-400">共 {activeRealSectors.length} 个板块·实时</span>
           </div>
 
+          {/* 提示：点击板块可查看详情 */}
+          <p className="flex items-center gap-1.5 text-[10px] text-gray-400">
+            <MessageSquare size={11} className="text-indigo-400" />
+            点击色块查看该板块详情 · 领涨/领跌/泡泡精选标签可切换
+          </p>
+
           {/* 原视图切换 + 筛选 chips（全部/泡泡精选/异动/关注）——已按需求注释保留 */}
           {/*
           <div className="flex items-center rounded-xl bg-[#f1f3f5] p-1" role="group" aria-label="地图视图">
@@ -880,14 +886,16 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                       key={tile.id}
                       type="button"
                       onClick={() => setSelectedRealSector(activeRealSectors.find((s) => s.id === tile.id) || null)}
-                      className="absolute flex flex-col items-center justify-center overflow-hidden border border-white/70 transition-transform hover:z-10 hover:scale-[1.02]"
+                      className="absolute flex flex-col items-center justify-center overflow-hidden border border-white/60 transition-transform hover:z-10 hover:scale-[1.02]"
                       style={{
                         left: `${(tile.x / 160) * 100}%`,
                         top: `${(tile.y / 100) * 100}%`,
                         width: `${(tile.w / 160) * 100}%`,
                         height: `${(tile.h / 100) * 100}%`,
-                        background: hs.background,
+                        // 立体感：内部顶部高光 + 底部投影，色块边缘微微凸起
+                        background: `linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0) 35%), ${hs.background}`,
                         color: hs.color,
+                        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.35), 0 2px 5px rgba(0,0,0,0.12)`,
                       }}
                       title={tile.name}
                     >
@@ -987,7 +995,7 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                   </button>
                 </div>
               ) : (
-                <div className="divide-y" style={{ borderColor: BORDER }}>
+                <div className="divide-y divide-gray-50">
                   {activeRealSectors.length > 0 ? activeRealSectors.map((s, i) => (
                     <button
                       key={s.id}
