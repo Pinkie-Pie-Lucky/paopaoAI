@@ -5,9 +5,9 @@
  * 今日大盘（Web 端 / 桌面）
  * 设计基线：v3 高保真稿
  *  - 左侧深底侧边栏 + 顶栏（在 WebApp 中）
- *  - 内容区：泡泡老师 Banner → 3 张紧凑横排指数卡 → 两栏网格（3:1）
- *      · 左栏：今天发生了什么（小白/专业切换 · 为什么会这样展开 · 有用/改进反馈）
- *      · 右栏：板块热力（迷你热力图）· 涨跌榜
+ *  - 内容区：泡泡老师 Banner → 3 张紧凑横排指数卡 → 单栏今天发生了什么
+ *      · 今天发生了什么（小白/专业切换 · 为什么会这样展开 · 有用/改进反馈）
+ *      · 板块热力 / 涨跌榜 / 我的自选 暂隐藏
  *  - A股配色：涨 #e5484d / 跌 #0ca678；边框 #eef0f3；侧边栏 #0b1120
  */
 
@@ -115,56 +115,6 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
     );
   }, [liveIndices, isLive]);
 
-  // 真实板块涨跌（/api/sectors），用于涨跌榜
-  const [realSectors, setRealSectors] = useState<Array<{ id: string; name: string; changePercent: number }> | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/sectors');
-        if (!res.ok) return;
-        const data = await res.json();
-        const sectors = Array.isArray(data?.sectors) ? data.sectors : [];
-        if (cancelled || sectors.length === 0) return;
-        setRealSectors(
-          sectors
-            .filter((s: any) => s && s.name && Number.isFinite(Number(s.changePercent)))
-            .map((s: any) => ({ id: String(s.id || ''), name: String(s.name), changePercent: Number(s.changePercent) })),
-        );
-      } catch {
-        // 保持 null（回退 mock）
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 涨跌榜统一为板块结构（name + changePercent），真实板块优先，mock 兜底
-  const mockSectorRanking = useMemo(
-    () =>
-      heatSectors
-        .map((s) => ({ id: s.id, name: s.name, changePercent: s.changePercent }))
-        .sort((a, b) => b.changePercent - a.changePercent),
-    [],
-  );
-  const rankingSectors = realSectors ?? [];
-  const topMovers = useMemo(
-    () =>
-      rankingSectors.length > 0
-        ? [...rankingSectors].sort((a, b) => b.changePercent - a.changePercent).slice(0, 8)
-        : mockSectorRanking.slice(0, 8),
-    [rankingSectors, mockSectorRanking],
-  );
-  const worst = useMemo(
-    () =>
-      rankingSectors.length > 0
-        ? [...rankingSectors].sort((a, b) => a.changePercent - b.changePercent).slice(0, 2)
-        : [...mockSectorRanking].reverse().slice(0, 2),
-    [rankingSectors, mockSectorRanking],
-  );
-
   const hour = new Date().getHours();
   const greet =
     hour < 6 ? '凌晨好' : hour < 11 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
@@ -225,7 +175,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         </div>
       </motion.section>
 
-      {/* ---------------- 3 张紧凑横排指数卡（压缩高度） ---------------- */}
+      {/* ---------------- 3 张紧凑横排指数卡 ---------------- */}
       <motion.section
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -272,429 +222,315 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         })}
       </motion.section>
 
-      {/* ---------------- 两栏网格（3:1，左栏与指数卡同宽，右栏与热力图同宽） ---------------- */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-        {/* ===== 左栏：今天发生了什么 ===== */}
-        <section className="space-y-4 lg:col-span-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-base font-bold text-gray-900">
-              <Activity size={18} className="text-indigo-600" />
-              今天发生了什么
-            </h2>
-            <div className="flex items-center rounded-xl bg-[#f1f3f5] p-1" role="group" aria-label="故事阅读模式">
-              {(['beginner', 'professional'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={storyMode === mode}
-                  onClick={() => {
-                    setStoryMode(mode);
-                    setExpandedStories(new Set());
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-                    storyMode === mode ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {mode === 'beginner' ? '小白模式' : '专业模式'}
-                </button>
-              ))}
-            </div>
+      {/* ---------------- 今天发生了什么（占满整行） ---------------- */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-base font-bold text-gray-900">
+            <Activity size={18} className="text-indigo-600" />
+            今天发生了什么
+          </h2>
+          <div className="flex items-center rounded-xl bg-[#f1f3f5] p-1" role="group" aria-label="故事阅读模式">
+            {(['beginner', 'professional'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={storyMode === mode}
+                onClick={() => {
+                  setStoryMode(mode);
+                  setExpandedStories(new Set());
+                }}
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                  storyMode === mode ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {mode === 'beginner' ? '小白模式' : '专业模式'}
+              </button>
+            ))}
           </div>
-          <p className="text-xs leading-5 text-gray-500">
-            {storyMode === 'beginner' ? '用一屏看懂事件和最短逻辑' : '查看数据验证、多因素驱动与反向条件'}
-          </p>
+        </div>
+        <p className="text-xs leading-5 text-gray-500">
+          {storyMode === 'beginner' ? '用一屏看懂事件和最短逻辑' : '查看数据验证、多因素驱动与反向条件'}
+        </p>
 
-          <div className="space-y-4">
-            {webStories.map((story) => {
-              const expanded = expandedStories.has(story.storyId);
-              const reasoningSteps =
-                storyMode === 'beginner' && story.teacher.simpleChain?.length
-                  ? story.teacher.simpleChain.map((text, index) => ({
-                      id: `simple-${index + 1}`,
-                      text,
-                      kind: 'knowledge' as const,
-                      evidenceIds: [],
-                    }))
-                  : visibleReasoningSteps(story);
-              const professional = story.professional;
-              const feedbackKey = `${storyMode}:${story.storyId}`;
-              return (
-                <article
-                  key={story.storyId}
-                  className="rounded-2xl border bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
-                  style={{ borderColor: BORDER }}
-                >
-                  {/* 标签行 */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700">
-                      {TYPE_LABELS[story.type] || '市场事件'}
+        <div className="space-y-4">
+          {webStories.map((story) => {
+            const expanded = expandedStories.has(story.storyId);
+            const reasoningSteps =
+              storyMode === 'beginner' && story.teacher.simpleChain?.length
+                ? story.teacher.simpleChain.map((text, index) => ({
+                    id: `simple-${index + 1}`,
+                    text,
+                    kind: 'knowledge' as const,
+                    evidenceIds: [],
+                  }))
+                : visibleReasoningSteps(story);
+            const professional = story.professional;
+            const feedbackKey = `${storyMode}:${story.storyId}`;
+            return (
+              <article
+                key={story.storyId}
+                className="rounded-2xl border bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+                style={{ borderColor: BORDER }}
+              >
+                {/* 标签行 */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700">
+                    {TYPE_LABELS[story.type] || '市场事件'}
+                  </span>
+                  {storyMode === 'professional' && (
+                    <span className="flex items-center gap-1 text-[11px] text-gray-600">
+                      <ShieldCheck size={13} className="text-indigo-500" />
+                      证据评分 {professional.confidence.score}/100
                     </span>
-                    {storyMode === 'professional' && (
-                      <span className="flex items-center gap-1 text-[11px] text-gray-600">
-                        <ShieldCheck size={13} className="text-indigo-500" />
-                        证据评分 {professional.confidence.score}/100
+                  )}
+                </div>
+
+                {/* 标题 + 指标 */}
+                <h3 className="mt-3 text-[15px] font-bold leading-7 text-gray-900">{story.title}</h3>
+                {story.metrics.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {story.metrics.map((metric) => (
+                      <span
+                        key={`${metric.label}-${metric.value}`}
+                        className="rounded-lg bg-[#f7f8fa] px-2 py-1 text-[11px] font-medium text-gray-600"
+                      >
+                        {metric.label}：<span className="font-semibold text-gray-800">{metric.value}</span>
                       </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* 正文：小白/专业 */}
+                {storyMode === 'beginner' ? (
+                  <div className="mt-3 flex gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                    <BrainMark size={32} className="shrink-0" />
+                    <p className="text-[13px] leading-6 text-gray-700">
+                      <strong className="text-indigo-800">泡泡解读：</strong>
+                      {story.teacher.summary}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <div className="rounded-xl bg-indigo-50/60 p-3">
+                      <p className="text-[10px] font-bold text-indigo-500">事件结论</p>
+                      <p className="mt-0.5 text-[13px] font-medium leading-6 text-gray-800">
+                        {professional.conclusion}
+                      </p>
+                    </div>
+                    {professional.drivers.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-gray-400">核心驱动因素</p>
+                        {professional.drivers.map((driver, index) => (
+                          <div key={`${driver.role}-${index}`} className="flex items-start gap-2">
+                            <span
+                              className={`mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                                driver.role === 'primary'
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : driver.role === 'secondary'
+                                    ? 'bg-sky-100 text-sky-700'
+                                    : 'bg-violet-100 text-violet-700'
+                              }`}
+                            >
+                              {DRIVER_LABELS[driver.role]}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[12px] font-bold text-gray-800">{driver.title}</p>
+                              <p className="mt-0.5 text-[11px] leading-5 text-gray-600">{driver.explanation}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
+                )}
 
-                  {/* 标题 + 指标 */}
-                  <h3 className="mt-3 text-[15px] font-bold leading-7 text-gray-900">{story.title}</h3>
-                  {story.metrics.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {story.metrics.map((metric) => (
-                        <span
-                          key={`${metric.label}-${metric.value}`}
-                          className="rounded-lg bg-[#f7f8fa] px-2 py-1 text-[11px] font-medium text-gray-600"
+                {/* 为什么会这样？/ 查看完整逻辑 */}
+                {reasoningSteps.length > 0 && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleStory(story.storyId)}
+                      aria-expanded={expanded}
+                      className="flex w-full items-center justify-between rounded-xl bg-[#f7f8fa] px-3 py-2.5 text-[13px] font-bold text-gray-700 transition-colors hover:bg-[#f0f1f4]"
+                    >
+                      <span>{storyMode === 'beginner' ? '为什么会这样？' : '查看完整逻辑'}</span>
+                      <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {expanded && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.22 }}
+                          className="overflow-hidden"
                         >
-                          {metric.label}：<span className="font-semibold text-gray-800">{metric.value}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* 正文：小白/专业 */}
-                  {storyMode === 'beginner' ? (
-                    <div className="mt-3 flex gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
-                      <BrainMark size={32} className="shrink-0" />
-                      <p className="text-[13px] leading-6 text-gray-700">
-                        <strong className="text-indigo-800">泡泡解读：</strong>
-                        {story.teacher.summary}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-3">
-                      <div className="rounded-xl bg-indigo-50/60 p-3">
-                        <p className="text-[10px] font-bold text-indigo-500">事件结论</p>
-                        <p className="mt-0.5 text-[13px] font-medium leading-6 text-gray-800">
-                          {professional.conclusion}
-                        </p>
-                      </div>
-                      {professional.drivers.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-bold text-gray-400">核心驱动因素</p>
-                          {professional.drivers.map((driver, index) => (
-                            <div key={`${driver.role}-${index}`} className="flex items-start gap-2">
-                              <span
-                                className={`mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                                  driver.role === 'primary'
-                                    ? 'bg-indigo-100 text-indigo-700'
-                                    : driver.role === 'secondary'
-                                      ? 'bg-sky-100 text-sky-700'
-                                      : 'bg-violet-100 text-violet-700'
-                                }`}
-                              >
-                                {DRIVER_LABELS[driver.role]}
-                              </span>
-                              <div className="min-w-0">
-                                <p className="text-[12px] font-bold text-gray-800">{driver.title}</p>
-                                <p className="mt-0.5 text-[11px] leading-5 text-gray-600">{driver.explanation}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 为什么会这样？/ 查看完整逻辑 */}
-                  {reasoningSteps.length > 0 && (
-                    <div className="mt-3">
-                      <button
-                        type="button"
-                        onClick={() => toggleStory(story.storyId)}
-                        aria-expanded={expanded}
-                        className="flex w-full items-center justify-between rounded-xl bg-[#f7f8fa] px-3 py-2.5 text-[13px] font-bold text-gray-700 transition-colors hover:bg-[#f0f1f4]"
-                      >
-                        <span>{storyMode === 'beginner' ? '为什么会这样？' : '查看完整逻辑'}</span>
-                        <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                      </button>
-                      <AnimatePresence initial={false}>
-                        {expanded && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.22 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="mt-2 space-y-3 rounded-2xl border bg-[#fafbfc] p-3" style={{ borderColor: BORDER }}>
-                              {storyMode === 'professional' && (
-                                <p className="text-[10px] font-bold text-gray-400">完整因果链</p>
-                              )}
-                              {reasoningSteps.map((step, index) => (
-                                <div key={step.id} className="flex gap-2">
-                                  <div className="flex flex-col items-center">
-                                    <span className="flex h-5 w-5 items-center justify-center rounded-full border border-indigo-200 bg-white text-[10px] font-bold text-indigo-700">
-                                      {index + 1}
+                          <div className="mt-2 space-y-3 rounded-2xl border bg-[#fafbfc] p-3" style={{ borderColor: BORDER }}>
+                            {storyMode === 'professional' && (
+                              <p className="text-[10px] font-bold text-gray-400">完整因果链</p>
+                            )}
+                            {reasoningSteps.map((step, index) => (
+                              <div key={step.id} className="flex gap-2">
+                                <div className="flex flex-col items-center">
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-indigo-200 bg-white text-[10px] font-bold text-indigo-700">
+                                    {index + 1}
+                                  </span>
+                                  {index < reasoningSteps.length - 1 && <span className="h-5 w-px bg-indigo-200" />}
+                                </div>
+                                <div className="min-w-0 flex-1 pb-2">
+                                  <p className="text-[12px] leading-6 text-gray-700">{step.text}</p>
+                                  {storyMode === 'professional' && (
+                                    <span className="text-[10px] text-gray-400">
+                                      {step.kind === 'fact' ? '已确认事实' : step.kind === 'knowledge' ? '金融常识' : '合理推断'}
                                     </span>
-                                    {index < reasoningSteps.length - 1 && <span className="h-5 w-px bg-indigo-200" />}
-                                  </div>
-                                  <div className="min-w-0 flex-1 pb-2">
-                                    <p className="text-[12px] leading-6 text-gray-700">{step.text}</p>
-                                    {storyMode === 'professional' && (
-                                      <span className="text-[10px] text-gray-400">
-                                        {step.kind === 'fact' ? '已确认事实' : step.kind === 'knowledge' ? '金融常识' : '合理推断'}
-                                      </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+
+                            {storyMode === 'beginner' && (story.teacher.uncertaintyText || story.reasoning.uncertainty) && (
+                              <p className="border-t border-amber-200/60 pt-2 text-[11px] leading-5 text-amber-800">
+                                💭 {story.teacher.uncertaintyText || story.reasoning.uncertainty}
+                              </p>
+                            )}
+
+                            {storyMode === 'professional' && (
+                              <div className="space-y-2 border-t border-gray-200 pt-3">
+                                <div>
+                                  <p className="text-[10px] font-bold text-emerald-700">支持证据</p>
+                                  <ul className="mt-1 space-y-1">
+                                    {professional.supportingEvidence.length > 0 ? (
+                                      professional.supportingEvidence.map((item) => (
+                                        <li key={item} className="text-[11px] leading-5 text-gray-600">
+                                          • {item}
+                                        </li>
+                                      ))
+                                    ) : (
+                                      <li className="text-[11px] text-gray-500">当前仅有行情事实，暂无额外支持证据。</li>
                                     )}
-                                  </div>
+                                  </ul>
                                 </div>
-                              ))}
-
-                              {storyMode === 'beginner' && (story.teacher.uncertaintyText || story.reasoning.uncertainty) && (
-                                <p className="border-t border-amber-200/60 pt-2 text-[11px] leading-5 text-amber-800">
-                                  💭 {story.teacher.uncertaintyText || story.reasoning.uncertainty}
-                                </p>
-                              )}
-
-                              {storyMode === 'professional' && (
-                                <div className="space-y-2 border-t border-gray-200 pt-3">
-                                  <div>
-                                    <p className="text-[10px] font-bold text-emerald-700">支持证据</p>
-                                    <ul className="mt-1 space-y-1">
-                                      {professional.supportingEvidence.length > 0 ? (
-                                        professional.supportingEvidence.map((item) => (
-                                          <li key={item} className="text-[11px] leading-5 text-gray-600">
-                                            • {item}
-                                          </li>
-                                        ))
-                                      ) : (
-                                        <li className="text-[11px] text-gray-500">当前仅有行情事实，暂无额外支持证据。</li>
-                                      )}
-                                    </ul>
-                                  </div>
-                                  <div>
-                                    <p className="text-[10px] font-bold text-amber-700">证据缺口</p>
-                                    <ul className="mt-1 space-y-1">
-                                      {(professional.evidenceGaps.length > 0 ? professional.evidenceGaps : [story.reasoning.uncertainty])
-                                        .filter(Boolean)
-                                        .map((item) => (
-                                          <li key={item} className="text-[11px] leading-5 text-gray-600">
-                                            • {item}
-                                          </li>
-                                        ))}
-                                    </ul>
-                                  </div>
-                                  <div className="rounded-xl border border-gray-200 bg-white p-3">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="text-[11px] font-bold text-gray-800">
-                                        证据评分 {professional.confidence.score}/100
-                                      </p>
-                                      <span className="text-[10px] text-gray-500">
-                                        {professional.confidence.level === 'high'
-                                          ? '较充分'
-                                          : professional.confidence.level === 'medium'
-                                            ? '中等'
-                                            : '有限'}
-                                      </span>
-                                    </div>
-                                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
-                                      <div
-                                        className="h-full rounded-full bg-indigo-500"
-                                        style={{ width: `${professional.confidence.score}%` }}
-                                      />
-                                    </div>
-                                    <p className="mt-2 text-[11px] leading-5 text-gray-600">
-                                      {professional.confidence.explanation}
+                                <div>
+                                  <p className="text-[10px] font-bold text-amber-700">证据缺口</p>
+                                  <ul className="mt-1 space-y-1">
+                                    {(professional.evidenceGaps.length > 0 ? professional.evidenceGaps : [story.reasoning.uncertainty])
+                                      .filter(Boolean)
+                                      .map((item) => (
+                                        <li key={item} className="text-[11px] leading-5 text-gray-600">
+                                          • {item}
+                                        </li>
+                                      ))}
+                                  </ul>
+                                </div>
+                                <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-[11px] font-bold text-gray-800">
+                                      证据评分 {professional.confidence.score}/100
                                     </p>
+                                    <span className="text-[10px] text-gray-500">
+                                      {professional.confidence.level === 'high'
+                                        ? '较充分'
+                                        : professional.confidence.level === 'medium'
+                                          ? '中等'
+                                          : '有限'}
+                                    </span>
                                   </div>
-                                  {professional.alternativeExplanations.length > 0 && (
-                                    <div>
-                                      <p className="text-[10px] font-bold text-gray-700">替代解释</p>
-                                      {professional.alternativeExplanations.map((item) => (
-                                        <p key={item} className="mt-1 text-[11px] leading-5 text-gray-600">
-                                          • {item}
-                                        </p>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {professional.counterLogic.length > 0 && (
-                                    <div>
-                                      <p className="text-[10px] font-bold text-rose-700">反向逻辑</p>
-                                      {professional.counterLogic.map((item) => (
-                                        <p key={item} className="mt-1 text-[11px] leading-5 text-gray-600">
-                                          • {item}
-                                        </p>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {professional.observationIndicators.length > 0 && (
-                                    <div>
-                                      <p className="text-[10px] font-bold text-indigo-700">后续观察</p>
-                                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                                        {professional.observationIndicators.map((item) => (
-                                          <span
-                                            key={item}
-                                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] leading-4 text-gray-600"
-                                          >
-                                            {item}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
+                                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                                    <div
+                                      className="h-full rounded-full bg-indigo-500"
+                                      style={{ width: `${professional.confidence.score}%` }}
+                                    />
+                                  </div>
+                                  <p className="mt-2 text-[11px] leading-5 text-gray-600">
+                                    {professional.confidence.explanation}
+                                  </p>
                                 </div>
-                              )}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )}
-
-                  {/* 反馈 */}
-                  <div className="mt-3 flex items-center justify-end gap-1.5 border-t border-gray-50 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleThumbsUp(story)}
-                      className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${
-                        thumbsFeedback[feedbackKey] === 'up'
-                          ? 'border border-indigo-200 bg-indigo-50 text-indigo-600'
-                          : 'text-gray-400 hover:bg-gray-50 hover:text-indigo-500'
-                      }`}
-                    >
-                      <ThumbsUp size={13} className={thumbsFeedback[feedbackKey] === 'up' ? 'fill-indigo-500' : ''} />
-                      有用
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleThumbsDown(story)}
-                      className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${
-                        thumbsFeedback[feedbackKey] === 'down'
-                          ? 'border border-rose-200 bg-rose-50 text-rose-600'
-                          : 'text-gray-400 hover:bg-gray-50 hover:text-rose-500'
-                      }`}
-                    >
-                      <ThumbsDown size={13} className={thumbsFeedback[feedbackKey] === 'down' ? 'fill-rose-500' : ''} />
-                      改进
-                    </button>
+                                {professional.alternativeExplanations.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-bold text-gray-700">替代解释</p>
+                                    {professional.alternativeExplanations.map((item) => (
+                                      <p key={item} className="mt-1 text-[11px] leading-5 text-gray-600">
+                                        • {item}
+                                      </p>
+                                    ))}
+                                  </div>
+                                )}
+                                {professional.counterLogic.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-bold text-rose-700">反向逻辑</p>
+                                    {professional.counterLogic.map((item) => (
+                                      <p key={item} className="mt-1 text-[11px] leading-5 text-gray-600">
+                                        • {item}
+                                      </p>
+                                    ))}
+                                  </div>
+                                )}
+                                {professional.observationIndicators.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-bold text-indigo-700">后续观察</p>
+                                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                      {professional.observationIndicators.map((item) => (
+                                        <span
+                                          key={item}
+                                          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] leading-4 text-gray-600"
+                                        >
+                                          {item}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
+                )}
 
-        {/* ===== 右栏：板块热力 / 涨跌榜 ===== */}
-        <aside className="space-y-6">
-          {/* 板块热力 */}
-          <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-            <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                <Grid3x3 size={15} className="text-indigo-600" />
-                板块热力
-              </h3>
-              <span className="text-[10px] text-gray-400">{heatSectors.length} 个板块</span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {heatSectors.map((s) => {
-                const st = heatStyle(s.changePercent);
-                return (
-                  <div
-                    key={s.id}
-                    className="flex min-h-[60px] flex-col justify-between rounded-lg border p-2.5 transition-transform hover:scale-[1.02]"
-                    style={{ background: st.background, color: st.color, borderColor: st.border }}
-                    title={`${s.name} ${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%`}
+                {/* 反馈 */}
+                <div className="mt-3 flex items-center justify-end gap-1.5 border-t border-gray-50 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleThumbsUp(story)}
+                    className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${
+                      thumbsFeedback[feedbackKey] === 'up'
+                        ? 'border border-indigo-200 bg-indigo-50 text-indigo-600'
+                        : 'text-gray-400 hover:bg-gray-50 hover:text-indigo-500'
+                    }`}
                   >
-                    <span className="text-[11px] font-semibold leading-4">{s.name}</span>
-                    <span className="text-right font-mono text-[13px] font-bold">
-                      {s.changePercent >= 0 ? '+' : ''}
-                      {s.changePercent.toFixed(2)}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-[10px] leading-4 text-gray-400">颜色越深代表当日涨跌幅越大；红涨绿跌。</p>
-          </section>
-
-          {/* 涨跌榜 */}
-          <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-            <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                <ListOrdered size={15} className="text-indigo-600" />
-                涨跌榜
-              </h3>
-              <span className="text-[10px] text-gray-400">按涨跌幅排序</span>
-            </div>
-            <div className="mt-2 divide-y" style={{ borderColor: BORDER }}>
-              {topMovers.map((stock, i) => {
-                const up = stock.changePercent >= 0;
-                const color = up ? UP : DOWN;
-                return (
-                  <div key={stock.id || `${stock.name}-${i}`} className="flex items-center gap-3 py-2.5">
-                    <span
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold"
-                      style={{ background: up ? 'rgba(229,72,77,0.1)' : 'rgba(12,166,120,0.1)', color }}
-                    >
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-gray-800">{stock.name}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono text-[12px] font-semibold" style={{ color }}>
-                        {up ? '+' : ''}
-                        {stock.changePercent.toFixed(2)}%
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-2 flex items-center justify-between rounded-lg bg-[#f7f8fa] px-3 py-2">
-              <span className="text-[10px] text-gray-400">领跌</span>
-              <span className="text-[11px] font-medium text-gray-600">
-                {worst.map((w) => `${w.name} ${w.changePercent.toFixed(2)}%`).join(' · ')}
-              </span>
-            </div>
-          </section>
-
-          {/* 我的自选（暂注释隐藏）
-          <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-            <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                <Star size={15} className="text-indigo-600" />
-                我的自选
-              </h3>
-              <span className="text-[10px] text-gray-400">{followedStocks.length} 只</span>
-            </div>
-            <div className="mt-2 space-y-2">
-              {followedStocks.map((stock) => {
-                const up = stock.changePercent >= 0;
-                const color = up ? UP : DOWN;
-                return (
-                  <div
-                    key={stock.code}
-                    className="flex items-center gap-3 rounded-xl border p-3 transition-colors hover:bg-[#fafbfc]"
-                    style={{ borderColor: BORDER }}
+                    <ThumbsUp size={13} className={thumbsFeedback[feedbackKey] === 'up' ? 'fill-indigo-500' : ''} />
+                    有用
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleThumbsDown(story)}
+                    className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-all ${
+                      thumbsFeedback[feedbackKey] === 'down'
+                        ? 'border border-rose-200 bg-rose-50 text-rose-600'
+                        : 'text-gray-400 hover:bg-gray-50 hover:text-rose-500'
+                    }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-gray-800">{stock.name}</p>
-                      <p className="font-mono text-[10px] text-gray-400">{stock.code}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono text-[12px] font-semibold text-gray-800">{stock.price.toFixed(2)}</p>
-                      <p className="font-mono text-[11px] font-semibold" style={{ color }}>
-                        {up ? '+' : ''}
-                        {stock.changePercent.toFixed(2)}%
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onAskTeacherAboutStock(stock.name, stock.code)}
-                      className="flex shrink-0 items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1.5 text-[11px] font-bold text-indigo-600 transition-colors hover:bg-indigo-100"
-                    >
-                      <MessageSquare size={12} />
-                      问泡泡
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-          */}
-        </aside>
-      </div>
+                    <ThumbsDown size={13} className={thumbsFeedback[feedbackKey] === 'down' ? 'fill-rose-500' : ''} />
+                    改进
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ===== 板块热力 / 涨跌榜 / 我的自选（暂隐藏） ===== */}
+      {/* <aside className="space-y-6">
+        // 板块热力
+        <section>...</section>
+        // 涨跌榜
+        <section>...</section>
+        // 我的自选
+        <section>...</section>
+      </aside> */}
     </div>
   );
 }
