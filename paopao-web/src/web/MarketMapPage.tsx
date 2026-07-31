@@ -118,7 +118,7 @@ const stageStyles: Record<string, { label: string; cls: string }> = {
 };
 
 /**
- * 原板块详情卡（保留定义，当前 UI 不调用）
+ * 板块详情卡（完整版：板块健康度 / 内部表现 / 产业链 / 领涨领跌 / 新闻 / 后续观察 / 问泡泡）
  */
 function SectorDetailCard({
   detail,
@@ -134,8 +134,15 @@ function SectorDetailCard({
   const colorOf = (v: number) => (v >= 0 ? UP : DOWN);
   const pctText = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
   const st = stageStyles[detail.stage] || stageStyles.no_clear_trend;
+  const periods = [
+    { label: '今日', v: detail.todayChangePercent },
+    { label: '近5日', v: detail.change5d },
+    { label: '近20日', v: detail.change20d },
+    { label: '3个月', v: detail.change3m },
+  ];
   return (
     <div className={`custom-scrollbar ${hideHeader ? '' : 'mt-3'} max-h-[70vh] space-y-4 overflow-y-auto pr-1`}>
+      {/* 头部：板块名 + 阶段 + 涨跌幅 + 信号标签 */}
       {!hideHeader && (
         <div>
           <div className="flex items-start justify-between gap-2">
@@ -145,39 +152,195 @@ function SectorDetailCard({
           <div className="mt-1 font-mono text-2xl font-bold" style={{ color: colorOf(detail.todayChangePercent) }}>
             {pctText(detail.todayChangePercent)}
           </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {detail.signalTags.map((t) => (
-              <span key={t} className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${tagStyles[t] || 'bg-slate-100 text-slate-600'}`}>
-                {t}
+          {/* 多周期涨跌 */}
+          <div className="mt-2 flex gap-2 rounded-xl bg-[#f7f8fa] p-2 text-[11px]">
+            {periods.map((p) => (
+              <div key={p.label} className="flex-1 text-center">
+                <span className="text-gray-400">{p.label}</span>
+                <div className="font-mono font-bold" style={{ color: p.v === null ? '#9ca3af' : colorOf(p.v) }}>
+                  {p.v === null ? '--' : pctText(p.v)}
+                </div>
+              </div>
+            ))}
+          </div>
+          {detail.signalTags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {detail.signalTags.map((t) => (
+                <span key={t} className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${tagStyles[t] || 'bg-slate-100 text-slate-600'}`}>
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 板块健康度 */}
+      <div>
+        <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
+          <Shield size={13} className="text-indigo-600" />
+          板块健康度
+        </p>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-[#f7f8fa] py-2">
+            <div className="font-mono text-base font-bold text-emerald-600">{detail.healthMetrics.upCount}</div>
+            <div className="text-[10px] text-gray-400">上涨</div>
+          </div>
+          <div className="rounded-lg bg-[#f7f8fa] py-2">
+            <div className="font-mono text-base font-bold text-gray-800">{detail.healthMetrics.totalCount}</div>
+            <div className="text-[10px] text-gray-400">成分股</div>
+          </div>
+          <div className="rounded-lg bg-[#f7f8fa] py-2">
+            <div className="font-mono text-base font-bold text-gray-800">{detail.healthMetrics.upRatio}%</div>
+            <div className="text-[10px] text-gray-400">上涨比</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 板块内部表现 */}
+      {detail.internalStocks.length > 0 && (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
+            <BarChart3 size={13} className="text-amber-600" />
+            板块内部表现
+          </p>
+          <div className="space-y-1 rounded-xl bg-[#f7f8fa] p-2">
+            {detail.internalStocks.map((s) => (
+              <button
+                key={s.code}
+                type="button"
+                onClick={() => onSelectStock(s.code)}
+                className="flex w-full items-center justify-between rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-white"
+              >
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-gray-800">
+                  {s.name}
+                  {s.isLeader && <span className="rounded bg-indigo-50 px-1 text-[8px] font-bold text-indigo-600">龙头</span>}
+                </span>
+                <span className="font-mono text-[11px] font-semibold" style={{ color: colorOf(s.changePercent) }}>
+                  {pctText(s.changePercent)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 产业链图谱 */}
+      {detail.relatedChain.length > 0 && (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
+            <ArrowUpRight size={13} className="text-cyan-600" />
+            产业链图谱
+          </p>
+          <div className="flex flex-wrap items-center gap-1 text-[10px]">
+            {detail.relatedChain.map((c, i) => (
+              <span key={c} className="flex items-center gap-1">
+                <span className="rounded-md bg-cyan-50 px-2 py-1 font-medium text-cyan-700">{c}</span>
+                {i < detail.relatedChain.length - 1 && <span className="text-cyan-300">→</span>}
               </span>
             ))}
           </div>
         </div>
       )}
-      <div>
-        <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
-          <BarChart3 size={13} className="text-amber-600" />
-          板块内部表现
-        </p>
-        <div className="space-y-1 rounded-xl bg-[#f7f8fa] p-2">
-          {detail.internalStocks.map((s) => (
-            <button
-              key={s.code}
-              type="button"
-              onClick={() => onSelectStock(s.code)}
-              className="flex w-full items-center justify-between rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-white"
-            >
-              <span className="flex items-center gap-1.5 text-[12px] font-medium text-gray-800">
-                {s.name}
-                {s.isLeader && <span className="rounded bg-indigo-50 px-1 text-[8px] font-bold text-indigo-600">龙头</span>}
-              </span>
-              <span className="font-mono text-[11px] font-semibold" style={{ color: colorOf(s.changePercent) }}>
-                {pctText(s.changePercent)}
-              </span>
-            </button>
-          ))}
+
+      {/* 今日领涨 / 领跌公司 */}
+      {detail.leadingStocks.length > 0 && (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
+            <Activity size={13} className="text-emerald-600" />
+            今日领涨公司
+          </p>
+          <div className="space-y-1.5">
+            {detail.leadingStocks.map((s) => (
+              <button
+                key={s.code}
+                type="button"
+                onClick={() => onSelectStock(s.code)}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-white p-2.5 text-left transition-colors hover:border-indigo-200"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span className="truncate text-[12px] font-bold text-gray-900">{s.name}</span>
+                    {s.isLeader && <span className="rounded bg-indigo-50 px-1 text-[8px] font-bold text-indigo-600">龙头</span>}
+                  </div>
+                  {s.reason && <p className="mt-0.5 truncate text-[10px] text-gray-400">{s.reason}</p>}
+                </div>
+                <span className="ml-2 shrink-0 font-mono text-[12px] font-bold" style={{ color: colorOf(s.changePercent) }}>
+                  {pctText(s.changePercent)}
+                </span>
+              </button>
+            ))}
+          </div>
+          {detail.laggingStocks.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <p className="text-[10px] font-medium text-gray-400">表现较弱</p>
+              {detail.laggingStocks.map((s) => (
+                <button
+                  key={s.code}
+                  type="button"
+                  onClick={() => onSelectStock(s.code)}
+                  className="flex w-full items-center justify-between rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-[#f7f8fa]"
+                >
+                  <span className="text-[12px] font-medium text-gray-700">{s.name}</span>
+                  <span className="font-mono text-[11px] font-semibold" style={{ color: colorOf(s.changePercent) }}>
+                    {pctText(s.changePercent)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* 相关新闻 */}
+      {detail.news.length > 0 && (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
+            <Newspaper size={13} className="text-sky-600" />
+            相关新闻
+          </p>
+          <div className="space-y-1.5">
+            {detail.news.map((n) => {
+              const cat =
+                n.category === '直接催化'
+                  ? 'bg-violet-50 text-violet-700'
+                  : n.category === '风险信息'
+                    ? 'bg-rose-50 text-rose-600'
+                    : n.category === '行业背景'
+                      ? 'bg-sky-50 text-sky-700'
+                      : 'bg-slate-50 text-slate-600';
+              return (
+                <div key={n.id} className="rounded-lg border border-slate-100 p-2">
+                  <p className="text-[11px] font-medium leading-5 text-gray-800">{n.title}</p>
+                  <span className={`mt-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium ${cat}`}>
+                    {n.category}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 后续观察 */}
+      {detail.watchPoints.length > 0 && (
+        <div>
+          <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
+            <Clock size={13} className="text-amber-600" />
+            后续观察
+          </p>
+          <div className="space-y-1">
+            {detail.watchPoints.map((p, i) => (
+              <p key={i} className="flex items-start gap-1.5 text-[11px] leading-5 text-gray-600">
+                <span className="mt-0.5 text-amber-400">•</span>
+                <span>{p}</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 问泡泡 */}
       <div className="space-y-2 border-t border-gray-100 pt-3">
         <p className="flex items-center gap-1.5 text-[12px] font-bold text-gray-700">
           <MessageSquare size={13} className="text-indigo-600" />
