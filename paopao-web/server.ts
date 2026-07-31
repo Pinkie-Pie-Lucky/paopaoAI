@@ -267,7 +267,9 @@ async function callInfiniSynapse(
 
               // say=text 完整消息可能是 Agent 任务中的过程文本（如"正在收集信息…"），不能立即返回。
               // 暂存即可，真正的最终答案由 completion_result 结束信号携带。
-              if (msg.say === 'text' && msg.partial === false && msg.text) {
+              // 重要：只接受 conversationHistoryIndex >= 0 的消息（Agent 已进入执行阶段且确实有输出）；
+              // -1 是平台把用户输入直接回显（未真正触发执行），不能当作答案。
+              if (msg.say === 'text' && msg.partial === false && msg.text && Number(msg.conversationHistoryIndex) >= 0) {
                 tentativeAnswer = msg.text;
                 // 新答案产生 → 重置 25 秒静默兜底，防止只发 text 不发 completion_result 时无限挂起
                 armSilenceTimer();
