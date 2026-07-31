@@ -8,18 +8,17 @@
  *  - 内容区：渲染对应页面（今日大盘已完整实现，其余为建设中占位）
  */
 
-import { useState, useEffect, useMemo } from 'react';
-import { Compass, Star, MessageSquare, User, Search, Home, Construction, TrendingUp, TrendingDown, Grid3x3 } from 'lucide-react';
-import { StockItem } from '../types';
-import { formatChineseDate, mockUserProfile } from '../data';
-import { heatSectors } from './mockWebData';
+import { useState, useEffect } from 'react';
+import { Compass, Star, MessageSquare, User, Search, Home, Bell, Construction } from 'lucide-react';
+import { StockItem } from './types';
+import { formatChineseDate, mockUserProfile } from './data';
 import { BrainMark } from './BrainMark';
 import { TodayMarketPage } from './TodayMarketPage';
 import { MarketMapPage } from './MarketMapPage';
 import { AiBubblePage } from './AiBubblePage';
 import { AccountPage } from './AccountPage';
 import { WatchlistPage } from './WatchlistPage';
-import { AuthProvider, useAuth } from './AuthContext';
+import { AuthProvider, useAuth, maskPhone } from './AuthContext';
 import { AuthModal } from './AuthModal';
 
 type WebNav = 'today' | 'map' | 'watchlist' | 'ai' | 'mine';
@@ -27,11 +26,9 @@ type WebNav = 'today' | 'map' | 'watchlist' | 'ai' | 'mine';
 const NAV: { id: WebNav; label: string; icon: typeof Home; desc: string }[] = [
   { id: 'today', label: '今日大盘', icon: Home, desc: '盘面概览与今日要闻' },
   { id: 'map', label: '市场地图', icon: Compass, desc: '板块全景热力图' },
-  // 「我的关注」标签暂隐藏
-  // { id: 'watchlist', label: '我的关注', icon: Star, desc: '自选股与预警' },
+  { id: 'watchlist', label: '我的关注', icon: Star, desc: '自选股与预警' },
   { id: 'ai', label: 'AI泡泡', icon: MessageSquare, desc: '智能投研问答' },
-  // 「个人中心」标签暂隐藏
-  // { id: 'mine', label: '个人中心', icon: User, desc: '账户与偏好设置' },
+  { id: 'mine', label: '个人中心', icon: User, desc: '账户与偏好设置' },
 ];
 
 const PAGE_TITLE: Record<WebNav, string> = {
@@ -70,29 +67,6 @@ function WebAppShell() {
   const [authOpen, setAuthOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<WebNav>('today');
   const [prefilledStock, setPrefilledStock] = useState<{ name: string; code: string } | null>(null);
-  // 顶栏搜索
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
-  // 顶栏搜索跳转定位：切到市场地图后让 MarketMapPage 选中对应板块/个股
-  const [mapTarget, setMapTarget] = useState<{ sectorId?: string | null; stockCode?: string | null } | null>(null);
-
-  // 搜索：同时匹配板块名 / 板块ID / 个股名 / 个股代码
-  const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return { sectors: [], stocks: [] };
-    const sectors = heatSectors
-      .filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
-      .slice(0, 4);
-    const stocks: Array<{ stock: StockItem; sectorId: string; sectorName: string }> = [];
-    for (const s of heatSectors) {
-      for (const st of s.stocks) {
-        if (st.name.toLowerCase().includes(q) || st.code.toLowerCase().includes(q)) {
-          stocks.push({ stock: st, sectorId: s.id, sectorName: s.name });
-        }
-      }
-    }
-    return { sectors, stocks: stocks.slice(0, 6) };
-  }, [searchQuery]);
   const [followedStocks, setFollowedStocks] = useState<StockItem[]>([
     { name: '科大讯飞', code: '002230.SZ', price: 45.12, changePercent: 2.85, volume: '28.9万手', turnover: '13.0亿元', history: [] },
     { name: '中芯国际', code: '688981.SH', price: 53.42, changePercent: 4.21, volume: '38.4万手', turnover: '20.3亿元', history: [] },
@@ -115,14 +89,6 @@ function WebAppShell() {
   };
 
   const openAi = () => setActiveNav('ai');
-
-  // 点击搜索结果：切到市场地图，并定位到对应板块 / 个股
-  const handleSearchSelect = (target: { sectorId?: string | null; stockCode?: string | null }) => {
-    setMapTarget(target);
-    setActiveNav('map');
-    setSearchQuery('');
-    setSearchFocused(false);
-  };
 
   return (
     <div className="flex min-h-screen bg-[#f5f6f8] font-sans text-gray-900">
@@ -157,23 +123,25 @@ function WebAppShell() {
           })}
         </nav>
 
-        {/* 底部用户（暂隐藏）
+        {/* 底部用户 */}
         <div className="mt-auto flex items-center gap-2.5 rounded-xl bg-white/5 px-3 py-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-bold text-indigo-200">
-            {auth.isLoggedIn && auth.session ? (auth.session.user.nickname || auth.session.user.username || auth.session.user.email || 'I').slice(0, 1).toUpperCase() : mockUserProfile.name.slice(0, 1)}
+            {auth.isLoggedIn && auth.session ? auth.session.phone.slice(-1) : mockUserProfile.name.slice(0, 1)}
           </div>
           <div className="min-w-0 leading-tight">
             {auth.isLoggedIn && auth.session ? (
               <>
-                <p className="truncate text-xs font-semibold text-white">{auth.session.user.nickname || auth.session.user.username || auth.session.user.email || 'InfiniSynapse 用户'}</p>
+                <p className="truncate text-xs font-semibold text-white">{maskPhone(auth.session.phone)}</p>
                 <p className="text-[10px] text-slate-400">已登录 · 可在个人中心退出</p>
               </>
             ) : (
-              <p className="truncate text-xs font-semibold text-white">{mockUserProfile.name}</p>
+              <>
+                <p className="truncate text-xs font-semibold text-white">{mockUserProfile.name}</p>
+                <p className="text-[10px] text-slate-400">{mockUserProfile.riskTolerance}</p>
+              </>
             )}
           </div>
         </div>
-        */}
       </aside>
 
       {/* ---------------- 主区域 ---------------- */}
@@ -185,54 +153,34 @@ function WebAppShell() {
             <p className="text-[11px] text-gray-400">{formatChineseDate(new Date())} · 泡泡看市 Web 端</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* 顶栏搜索框（暂隐藏）
-            <div className="relative lg:w-72">
-              <div className="flex items-center gap-2 rounded-xl border border-[#e8eaed] bg-[#f7f8fa] px-3 py-2 transition-colors focus-within:border-indigo-300 focus-within:bg-white">
-                <Search size={15} className="shrink-0 text-gray-400" />
-                <input
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setSearchFocused(true);
-                  }}
-                  onFocus={() => setSearchFocused(true)}
-                  onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
-                  className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
-                  placeholder="搜索股票 / 板块"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSearchFocused(true);
-                    }}
-                    className="shrink-0 text-[10px] font-semibold text-gray-400 hover:text-gray-600"
-                  >
-                    清空
-                  </button>
-                )}
-              </div>
+            <div className="flex items-center gap-2 rounded-xl border border-[#e8eaed] bg-[#f7f8fa] px-3 py-2 lg:w-64">
+              <Search size={15} className="text-gray-400" />
+              <input
+                className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder:text-gray-400"
+                placeholder="搜索股票 / 板块"
+              />
             </div>
-            */}
+            <button className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-[#e8eaed] bg-white text-gray-500 transition-colors hover:text-indigo-600">
+              <Bell size={16} />
+              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-rose-500" />
+            </button>
             {auth.isLoggedIn && auth.session ? (
               <button
-                disabled
-                className="flex cursor-default items-center gap-2 rounded-full bg-indigo-50 py-1 pl-1 pr-3 opacity-80"
-                title="已登录"
+                onClick={() => setActiveNav('mine')}
+                className="flex items-center gap-2 rounded-full bg-indigo-50 py-1 pl-1 pr-3 transition-colors hover:bg-indigo-100"
+                title="个人中心"
               >
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-bold text-indigo-600">
-                  {(auth.session.user.nickname || auth.session.user.username || auth.session.user.email || 'I').slice(0, 1).toUpperCase()}
+                  {auth.session.phone.slice(-1)}
                 </span>
-                <span className="text-xs font-semibold text-indigo-700">{auth.session.user.nickname || auth.session.user.username || auth.session.user.email || 'InfiniSynapse 用户'}</span>
+                <span className="text-xs font-semibold text-indigo-700">{maskPhone(auth.session.phone)}</span>
               </button>
             ) : (
               <button
                 onClick={() => setAuthOpen(true)}
                 className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
               >
-                使用 InfiniSynapse 登录
+                登录 / 注册
               </button>
             )}
           </div>
@@ -243,7 +191,7 @@ function WebAppShell() {
           {activeNav === 'today' ? (
             <TodayMarketPage followedStocks={followedStocks} onAskTeacherAboutStock={handleAskTeacher} />
           ) : activeNav === 'map' ? (
-            <MarketMapPage onAskTeacherAboutStock={handleAskTeacher} initialTarget={mapTarget} />
+            <MarketMapPage onAskTeacherAboutStock={handleAskTeacher} />
           ) : activeNav === 'ai' ? (
             <AiBubblePage prefill={prefilledStock} onAskTeacherAboutStock={handleAskTeacher} />
           ) : activeNav === 'watchlist' ? (
