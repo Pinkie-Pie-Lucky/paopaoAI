@@ -65,6 +65,8 @@ interface RealSector {
   id: string;
   name: string;
   changePercent: number;
+  /** 东方财富板块 code（BKxxxx），用于拉取详情 */
+  code?: string;
 }
 
 /* ----------------------------- 颜色工具 ----------------------------- */
@@ -417,11 +419,70 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const [selectedRealSector, setSelectedRealSector] = useState<RealSector | null>(null);
   // 新增：真实板块数据源
   const [realSectors, setRealSectors] = useState<RealSector[]>([]);
-  // 新增：选中的板块详情（按名称匹配 mock 板块，命中则展示完整详情）
-  const selectedRealSectorDetail = useMemo(() => {
-    if (!selectedRealSector) return null;
-    const match = heatSectors.find((s) => s.name === selectedRealSector.name);
-    return match ? getSectorDetail(match.id) : null;
+  // 新增：选中的板块详情（优先从后端 /api/sector-detail 拉真实成分股/K线/新闻；失败按名称匹配 mock 兜底）
+  const [selectedRealSectorDetail, setSelectedRealSectorDetail] = useState<SectorDetail | null>(null);
+  useEffect(() => {
+    if (!selectedRealSector) {
+      setSelectedRealSectorDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setSelectedRealSectorDetail(null);
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/sector-detail?sectorName=${encodeURIComponent(selectedRealSector.name)}&sectorId=${encodeURIComponent(selectedRealSector.id)}`,
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled || !data) return;
+        // 后端返回完整详情，补齐前端 SectorDetail 需要的字段
+        const detail: SectorDetail = {
+          sectorId: selectedRealSector.id,
+          sectorName: String(data.sector || selectedRealSector.name),
+          todayChangePercent: Number(data.todayChangePercent) || selectedRealSector.changePercent,
+          change5d: data.change5d ?? null,
+          change20d: data.change20d ?? null,
+          change3m: data.change3m ?? null,
+          stage: String(data.stage || 'no_clear_trend'),
+          stageLabel: String(data.stageLabel || '暂无明确趋势'),
+          signalTags: Array.isArray(data.signalTags) ? data.signalTags : [],
+          signalTypes: Array.isArray(data.signalTypes) ? data.signalTypes : [],
+          healthMetrics: {
+            upCount: data.healthMetrics?.upCount ?? 0,
+            totalCount: data.healthMetrics?.totalCount ?? 0,
+            medianChange: '--',
+            leaderContribution: data.healthMetrics?.leaderContribution ?? '--',
+            divergence: 'moderate',
+            upRatio: data.healthMetrics?.upRatio ?? 0,
+          },
+          leadingStocks: Array.isArray(data.leadingStocks) ? data.leadingStocks : [],
+          laggingStocks: Array.isArray(data.laggingStocks) ? data.laggingStocks : [],
+          news: Array.isArray(data.news) ? data.news : [],
+          heatMetrics: {
+            todayTurnover: data.heatMetrics?.todayTurnover ?? null,
+            turnoverChangePercent: data.heatMetrics?.turnoverChangePercent ?? null,
+            turnoverVs20dAvg: data.heatMetrics?.turnoverVs20dAvg ?? null,
+            turnoverRate: data.heatMetrics?.turnoverRate ?? null,
+            upRatio: data.heatMetrics?.upRatio ?? null,
+          },
+          watchPoints: Array.isArray(data.watchPoints) ? data.watchPoints : [],
+          exploreQuestions: Array.isArray(data.exploreQuestions) ? data.exploreQuestions : [],
+          relatedChain: Array.isArray(data.relatedChain) ? data.relatedChain : [],
+          internalStocks: Array.isArray(data.internalStocks) ? data.internalStocks : (Array.isArray(data.leadingStocks) ? data.leadingStocks : []),
+        };
+        if (!cancelled) setSelectedRealSectorDetail(detail);
+      } catch {
+        // 兜底：按名称匹配 mock 板块
+        if (!cancelled) {
+          const match = heatSectors.find((s) => s.name === selectedRealSector.name);
+          setSelectedRealSectorDetail(match ? getSectorDetail(match.id) : null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedRealSector]);
   const mapRef = useRef<HTMLDivElement>(null);
 

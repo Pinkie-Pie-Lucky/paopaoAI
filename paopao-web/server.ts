@@ -1786,7 +1786,8 @@ async function startServer() {
       // marketData.sectors 来自东方财富板块API，包含 name + changePercent
       // 将板块数据映射为我们前端使用的格式
       const sectors = (marketData.sectors || []).map((s: any, i: number) => ({
-        id: `sector-${i}`,
+        // 保留东方财富板块 code（BKxxxx），供 /api/sector-detail 拉取真实成分股/K线/新闻
+        id: s.code ? String(s.code) : `sector-${i}`,
         name: s.name,
         changePercent: s.changePercent,
         description: '',
