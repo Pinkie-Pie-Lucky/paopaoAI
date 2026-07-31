@@ -668,7 +668,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
             </div>
           </section>
 
-          {/* 我的自选 */}
+          {/* 我的自选（暂注释隐藏）
           <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
@@ -711,6 +711,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
               })}
             </div>
           </section>
+          */}
         </aside>
       </div>
     </div>
