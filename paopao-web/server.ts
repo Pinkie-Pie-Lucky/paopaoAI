@@ -1051,13 +1051,25 @@ async function startServer() {
         '82.push2.eastmoney.com',
         'push2his.eastmoney.com',
       ];
-      // 取完整行业板块池，而不是只取涨幅前20名，否则市场广度会系统性偏高。
-      const EM_PATH = '/api/qt/clist/get?pn=1&pz=500&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f2,f3,f4,f12,f14';
+      // 东方财富单次最多返回 100 条，即使 pz 设 500 也只回第一页 100 条。
+      // 因此必须分页：先用 pn=1 拿 total，再并行拉取后续页，拼出完整行业板块池（约 310 个）。
+      const PAGE_SIZE = 100;
+      const BASE_PATH = (page: number) =>
+        `/api/qt/clist/get?pn=${page}&pz=${PAGE_SIZE}&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f2,f3,f4,f12,f14`;
       // 注意：东方财富HTTPS在此环境下会ECONNRESET，与指数API相同原因，必须使用HTTP
       for (const host of EM_HOSTS) {
         try {
-          const result = await httpGetJSON(`http://${host}${EM_PATH}`);
-          return (result?.data?.diff || [])
+          const first = await httpGetJSON(`http://${host}${BASE_PATH(1)}`);
+          const total = Number(first?.data?.total || 0);
+          const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+          const allRows = [...(first?.data?.diff || [])];
+          // 已拿第一页；若总页数>1，并行拉取剩余页
+          if (pageCount > 1) {
+            const pages = Array.from({ length: pageCount - 1 }, (_, i) => i + 2);
+            const results = await Promise.all(pages.map((page) => httpGetJSON(`http://${host}${BASE_PATH(page)}`)));
+            results.forEach((r) => allRows.push(...(r?.data?.diff || [])));
+          }
+          return allRows
             .map((d: any) => ({ name: d.f14, code: d.f12, changePercent: Math.round(d.f3 * 100) / 100 }))
             .filter((s: any) => s.name && s.changePercent !== undefined)
             .sort((a: any, b: any) => b.changePercent - a.changePercent);
