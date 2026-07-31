@@ -417,6 +417,12 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const [selectedRealSector, setSelectedRealSector] = useState<RealSector | null>(null);
   // 新增：真实板块数据源
   const [realSectors, setRealSectors] = useState<RealSector[]>([]);
+  // 新增：选中的板块详情（按名称匹配 mock 板块，命中则展示完整详情）
+  const selectedRealSectorDetail = useMemo(() => {
+    if (!selectedRealSector) return null;
+    const match = heatSectors.find((s) => s.name === selectedRealSector.name);
+    return match ? getSectorDetail(match.id) : null;
+  }, [selectedRealSector]);
   const mapRef = useRef<HTMLDivElement>(null);
 
   // 拉取真实板块（/api/sectors：东方财富约100个行业板块，实时涨跌幅）
@@ -726,21 +732,33 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
             </div>
           </section>
 
-          {/* 选中板块详情 */}
+          {/* 选中板块详情（右侧展示完整板块详情页；无 mock 匹配时回退基础信息） */}
           {selectedRealSector && (
             <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-              <h3 className="text-[15px] font-bold text-gray-900">{selectedRealSector.name}</h3>
-              <p className="mt-1 font-mono text-2xl font-bold" style={{ color: colorOf(selectedRealSector.changePercent) }}>
-                {pct(selectedRealSector.changePercent)}
-              </p>
-              <p className="mt-1 text-[11px] text-gray-400">今日板块涨跌幅（实时）</p>
-              <button
-                type="button"
-                onClick={() => onAskTeacherAboutStock(selectedRealSector.name, selectedRealSector.id)}
-                className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
-              >
-                问泡泡 · 分析「{selectedRealSector.name}」
-              </button>
+              {selectedRealSectorDetail ? (
+                <SectorDetailCard
+                  detail={selectedRealSectorDetail}
+                  onSelectStock={(code) => {
+                    /* 原逻辑：选中个股；真实板块详情无个股跳转需求，保留桩 */
+                  }}
+                  onAsk={onAskTeacherAboutStock}
+                />
+              ) : (
+                <>
+                  <h3 className="text-[15px] font-bold text-gray-900">{selectedRealSector.name}</h3>
+                  <p className="mt-1 font-mono text-2xl font-bold" style={{ color: colorOf(selectedRealSector.changePercent) }}>
+                    {pct(selectedRealSector.changePercent)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-gray-400">今日板块涨跌幅（实时）</p>
+                  <button
+                    type="button"
+                    onClick={() => onAskTeacherAboutStock(selectedRealSector.name, selectedRealSector.id)}
+                    className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-medium text-indigo-700 transition-colors hover:bg-indigo-100"
+                  >
+                    问泡泡 · 分析「{selectedRealSector.name}」
+                  </button>
+                </>
+              )}
             </section>
           )}
 
