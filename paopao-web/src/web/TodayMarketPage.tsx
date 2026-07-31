@@ -115,7 +115,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
       // 首次加载（用户刷新页面）始终拉取
       try {
         setStoriesLoading(true);
-        const res = await fetch('/api/morning-report');
+        const res = await fetch('/api/morning-report?refresh=1');
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (cancelled || !Array.isArray(data?.stories) || data.stories.length === 0) return;
