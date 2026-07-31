@@ -35,7 +35,7 @@ import {
   Newspaper,
   Clock,
 } from 'lucide-react';
-import { StockItem, StockSector } from '../types';
+import { StockItem } from '../types';
 import type { HeatSector } from './mockWebData';
 import { formatChineseDate } from '../data';
 import { BrainMark } from './BrainMark';
@@ -525,12 +525,9 @@ function layoutTreemap<T extends { id: string; value: number }>(items: T[], rect
 
 /* ----------------------------- 权重代理（演示用） ----------------------------- */
 
-function sectorWeight(s: StockSector | HeatSector) {
-  // 板块相对市值权重代理：mock 板块用个股价格之和，实时板块用固定基准
-  if ('stocks' in s && s.stocks.length > 0) {
-    return s.stocks.reduce((sum, st) => sum + st.price, 0);
-  }
-  return 100;
+function sectorWeight(s: HeatSector) {
+  // 以板块内个股价格之和作为相对市值权重代理
+  return s.stocks.reduce((sum, st) => sum + st.price, 0);
 }
 function stockWeight(st: StockItem) {
   return st.price; // 相对市值权重代理
@@ -542,11 +539,9 @@ interface MarketMapPageProps {
   onAskTeacherAboutStock: (name: string, code: string) => void;
 }
 
-// 板块布局（轻量结构：不携带原始板块对象，避免 HeatSector/StockSector 类型耦合）
 interface SectorLayout extends Rect {
   id: string;
-  name: string;
-  changePercent: number;
+  sector: HeatSector;
 }
 interface StockLayout extends Rect {
   id: string;
@@ -563,14 +558,6 @@ interface TooltipState {
 
 const STORAGE_KEY = 'web-market-map-followed';
 
-// 用于 treemap 的板块项
-interface SectorMapItem {
-  id: string;
-  name: string;
-  changePercent: number;
-  value: number;
-}
-
 export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const [view, setView] = useState<MapView>('sector');
   const [filter, setFilter] = useState<MapFilter>('all');
@@ -578,36 +565,6 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [selectedStockCode, setSelectedStockCode] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, left: 0, top: 0, stock: null });
-  // 真实板块数据：从 /api/sectors 拉取（东方财富行业板块，约80+个），失败回退 mock 6 个
-  const [dynamicSectors, setDynamicSectors] = useState<HeatSector[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/sectors');
-        if (!res.ok) return;
-        const data = await res.json();
-        const sectors = Array.isArray(data?.sectors) ? data.sectors : null;
-        if (!sectors || cancelled) return;
-        // 转换：真实板块只有 name + changePercent，构造 HeatSector 结构（stocks 为空）
-        const converted: HeatSector[] = sectors
-          .filter((s: any) => s && s.name && Number.isFinite(Number(s.changePercent)))
-          .map((s: any, i: number) => ({
-            id: `live-${i}`,
-            name: String(s.name),
-            changePercent: Number(s.changePercent),
-            stocks: [],
-          }));
-        if (converted.length > 0) setDynamicSectors(converted);
-      } catch {
-        // 保持 mock
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // 右侧栏页签：详情 / 领涨 / 领跌（一次只显示一个面板，避免详情展开后挤掉排行榜）
   const [railTab, setRailTab] = useState<'detail' | 'gainers' | 'losers'>('gainers');
@@ -627,28 +584,24 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
     return ['robot'];
   });
 
-  // 板块地图数据源：优先真实板块（约80+），失败回退 mock 6 个
-  const mapSectors = dynamicSectors ?? heatSectors;
-
-  // 板块分类集合（基于 mock 板块）
+  // 板块分类集合（演示用派生）
   const FEATURED_IDS = useMemo(() => new Set(heatSectors.filter((s) => s.changePercent >= 2.5).map((s) => s.id)), []);
   const ANOMALY_IDS = useMemo(() => new Set(['ai-compute', 'semiconductor']), []);
 
-  // 全部板块数量（真实数据优先）
   const filterCounts = useMemo(
     () => ({
-      all: mapSectors.length,
+      all: heatSectors.length,
       featured: FEATURED_IDS.size,
       anomaly: ANOMALY_IDS.size,
       followed: followedIds.length,
     }),
-    [mapSectors, FEATURED_IDS, ANOMALY_IDS, followedIds]
+    [FEATURED_IDS, ANOMALY_IDS, followedIds]
   );
 
-  // 板块地图：筛选 + 搜索后的板块（用真实板块；featured/anomaly/followed 仅对 mock id 生效，无匹配时回退全部）
-  const filteredSectors = useMemo(() => {
+  // 筛选 + 搜索后的板块
+  const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = mapSectors.filter((s) => {
+    return heatSectors.filter((s) => {
       const fm =
         filter === 'all' ||
         (filter === 'featured' && FEATURED_IDS.has(s.id)) ||
@@ -657,56 +610,46 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
       const qm = !q || s.name.toLowerCase().includes(q);
       return fm && qm;
     });
-    // 若筛选后为空（真实板块 id 与 mock 不匹配），回退显示全部
-    return list.length > 0 ? list : mapSectors;
-  }, [query, filter, followedIds, FEATURED_IDS, ANOMALY_IDS, mapSectors]);
+  }, [query, filter, followedIds, FEATURED_IDS, ANOMALY_IDS]);
 
   /* -------- Treemap 布局（160×100 虚拟坐标，容器宽高比 8:5） -------- */
   const MAP_W = 160;
   const MAP_H = 100;
   const HEADER = 11; // 板块标题条占用的虚拟高度
 
-  const sectorLayouts = useMemo<SectorLayout[]>(() => {
-    const items: SectorMapItem[] = filteredSectors.map((s) => ({
-      id: s.id,
-      name: s.name,
-      changePercent: s.changePercent,
-      value: sectorWeight(s),
-    }));
-    return layoutTreemap(items, { x: 0, y: 0, w: MAP_W, h: MAP_H });
-  }, [filteredSectors]);
-
-  // 个股层：仅 mock 板块有个股；真实板块 stocks 为空
-  const stockLayouts = useMemo<StockLayout[]>(() => {
-    if (view === 'stock') {
-      // 个股地图：用 mock 板块的个股（真实板块无个股列表）
-      const mockFiltered = heatSectors.filter((s) => !query || s.name.toLowerCase().includes(query.trim().toLowerCase()));
-      const all = mockFiltered.flatMap((s) => s.stocks.map((st) => ({ st, sid: s.id })));
-      return layoutTreemap(
-        all.map((a) => ({ id: a.st.code, value: stockWeight(a.st), stock: a.st, sectorId: a.sid })),
+  const sectorLayouts = useMemo<SectorLayout[]>(
+    () =>
+      layoutTreemap(
+        filtered.map((s) => ({ id: s.id, value: sectorWeight(s), sector: s })),
         { x: 0, y: 0, w: MAP_W, h: MAP_H }
-      );
-    }
-    // 板块地图：板块内个股（只有 mock 板块带个股，实时板块 stocks 为空自动跳过）
-    const out: StockLayout[] = [];
-    sectorLayouts.forEach((sl) => {
-      const s = mapSectors.find((x) => x.id === sl.id);
-      const stocks = s && 'stocks' in s ? s.stocks : [];
-      if (stocks.length === 0) return;
-      const inner: Rect = { x: sl.x, y: sl.y + HEADER, w: sl.w, h: Math.max(sl.h - HEADER, 1) };
-      const rs = layoutTreemap(
-        stocks.map((st) => ({ id: st.code, value: stockWeight(st), stock: st, sectorId: sl.id })),
-        inner
-      );
-      rs.forEach((r) => out.push(r));
-    });
-    return out;
-  }, [view, sectorLayouts, mapSectors, query]);
+      ),
+    [filtered]
+  );
 
-  /* -------- 个股排行榜（随搜索联动，用 mock 个股） -------- */
+  const stockLayouts = useMemo<StockLayout[]>(() => {
+    if (view === 'sector') {
+      const out: StockLayout[] = [];
+      sectorLayouts.forEach((sl) => {
+        const inner: Rect = { x: sl.x, y: sl.y + HEADER, w: sl.w, h: Math.max(sl.h - HEADER, 1) };
+        const rs = layoutTreemap(
+          sl.sector.stocks.map((st) => ({ id: st.code, value: stockWeight(st), stock: st, sectorId: sl.sector.id })),
+          inner
+        );
+        rs.forEach((r) => out.push(r));
+      });
+      return out;
+    }
+    const all = filtered.flatMap((s) => s.stocks.map((st) => ({ st, sid: s.id })));
+    return layoutTreemap(
+      all.map((a) => ({ id: a.st.code, value: stockWeight(a.st), stock: a.st, sectorId: a.sid })),
+      { x: 0, y: 0, w: MAP_W, h: MAP_H }
+    );
+  }, [view, sectorLayouts, filtered]);
+
+  /* -------- 排行榜（随筛选联动） -------- */
   const filteredRanked = useMemo(
-    () => heatSectors.flatMap((s) => s.stocks).sort((a, b) => b.changePercent - a.changePercent),
-    []
+    () => filtered.flatMap((s) => s.stocks).sort((a, b) => b.changePercent - a.changePercent),
+    [filtered]
   );
   const topGainers = filteredRanked.slice(0, 8);
   const topLosers = [...filteredRanked].reverse().slice(0, 5);
@@ -715,6 +658,10 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const selectedStock = useMemo(
     () => getRankedStocks().find((s) => s.code === selectedStockCode) || null,
     [selectedStockCode]
+  );
+  const selectedSector = useMemo(
+    () => heatSectors.find((s) => s.id === selectedSectorId) || null,
+    [selectedSectorId]
   );
   const selectedDetail = useMemo(
     () => (selectedSectorId ? getSectorDetail(selectedSectorId) : null),
@@ -750,10 +697,10 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const isUp = (pct: number) => pct >= 0;
   const colorOf = (pct: number) => (isUp(pct) ? UP : DOWN);
 
-  /* -------- 概览数据（真实板块数量） -------- */
+  /* -------- 概览数据 -------- */
   const overviewIndices = webIndices.slice(0, 3);
-  const upCount = mapSectors.filter((s) => s.changePercent >= 0).length;
-  const downCount = mapSectors.length - upCount;
+  const upCount = heatSectors.filter((s) => s.changePercent >= 0).length;
+  const downCount = heatSectors.length - upCount;
 
   const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 
@@ -766,7 +713,9 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
             <div className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-white">
               <Compass size={16} />
             </div>
-            <h2 className="text-base font-bold leading-tight text-gray-900">市场地图</h2>
+            <div>
+              <h2 className="text-base font-bold leading-tight text-gray-900">市场地图</h2>
+            </div>
           </div>
 
           <div className="hidden h-8 w-px bg-gray-100 sm:block" />
@@ -880,9 +829,9 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                 {/* 板块块背景 + 标题条（板块地图模式） */}
                 {view === 'sector' &&
                   sectorLayouts.map((sl) => {
-                    const up = isUp(sl.changePercent);
-                    const hs = headStyle(sl.changePercent);
-                    const followed = followedIds.includes(sl.id);
+                    const up = isUp(sl.sector.changePercent);
+                    const hs = headStyle(sl.sector.changePercent);
+                    const followed = followedIds.includes(sl.sector.id);
                     return (
                       <div
                         key={`bg-${sl.id}`}
@@ -892,14 +841,14 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                           top: `${(sl.y / MAP_H) * 100}%`,
                           width: `${(sl.w / MAP_W) * 100}%`,
                           height: `${(sl.h / MAP_H) * 100}%`,
-                          background: heatStyle(sl.changePercent).background,
+                          background: heatStyle(sl.sector.changePercent).background,
                         }}
                       >
                         {/* 标题条 */}
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedSectorId(sl.id);
+                            setSelectedSectorId(sl.sector.id);
                             setSelectedStockCode(null);
                           }}
                           className="absolute inset-x-0 top-0 flex items-center justify-between gap-1 px-2 py-1 text-left"
@@ -909,14 +858,14 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                             color: hs.color,
                             borderBottom: `1px solid ${hs.border}`,
                           }}
-                          title={sl.name}
+                          title={sl.sector.name}
                         >
                           <span className="flex min-w-0 items-center gap-1">
-                            <span className="truncate text-[11px] font-bold">{sl.name}</span>
+                            <span className="truncate text-[11px] font-bold">{sl.sector.name}</span>
                             {ANOMALY_IDS.has(sl.id) && <Flame size={10} className="shrink-0" />}
                           </span>
                           <span className="flex shrink-0 items-center gap-1">
-                            <span className="font-mono text-[10px] font-bold">{pct(sl.changePercent)}</span>
+                            <span className="font-mono text-[10px] font-bold">{pct(sl.sector.changePercent)}</span>
                             <Heart
                               size={11}
                               className={`transition-colors ${followed ? 'fill-rose-500 text-rose-500' : 'text-white/70 hover:text-white'}`}
@@ -967,7 +916,7 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                 })}
 
                 {/* 空状态 */}
-                {filteredSectors.length === 0 && (
+                {filtered.length === 0 && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                     <Layers3 className="h-6 w-6 text-slate-300" />
                     <p className="mt-2 text-xs text-slate-500">没有匹配的板块</p>
