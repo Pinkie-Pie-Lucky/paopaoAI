@@ -180,7 +180,7 @@ function WebAppShell() {
                 onClick={() => setAuthOpen(true)}
                 className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
               >
-                登录 / 注册
+                使用 InfiniSynapse 登录
               </button>
             )}
           </div>
