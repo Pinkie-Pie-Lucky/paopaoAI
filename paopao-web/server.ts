@@ -18,6 +18,131 @@ dotenv.config();
 const INFINISYNAPSE_API_KEY = process.env.INFINISYNAPSE_API_KEY || '';
 const INFINISYNAPSE_SERVER_URL = (process.env.INFINISYNAPSE_SERVER_URL || 'https://app.infinisynapse.cn').replace(/\/+$/, '');
 
+/* ==================== InfiniSynapse Partner SSO 集成 ==================== */
+// 参考：https://infinisynapse.cn/zh/docs/InfiniSynapse%20Partner%20SSO%20Integration%20Guide
+// 在 https://app.infinisynapse.cn/tasks → 设置 → 第三方接入 申请 clientId / clientSecret
+const INFINI_CLIENT_ID = process.env.INFINI_CLIENT_ID || '';
+const INFINI_CLIENT_SECRET = process.env.INFINI_CLIENT_SECRET || '';
+// SSO 接口基础地址（与 Server API 的 app. 域名不同，这里是 api. 域名）
+const INFINI_SSO_API_BASE = (process.env.INFINI_SSO_API_BASE || 'https://api.infinisynapse.cn/api').replace(/\/+$/, '');
+// 登录成功后浏览器跳回的完整地址，域名必须与申请时填写的白名单一致
+const PAOPAO_SSO_RETURN_URL = process.env.PAOPAO_SSO_RETURN_URL || `http://localhost:${process.env.PORT || 8080}/auth/callback`;
+
+/** 生成随机 state（防 CSRF） */
+function randomState(): string {
+  return uuidv4().replace(/-/g, '') + Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * 创建 InfiniSynapse 登录会话
+ * POST /api/auth/partner/sessions
+ * 请求头：X-Client-Id / X-Client-Secret
+ * 响应：{ code, message, data: { sessionId, entryUrl, expiresIn } }
+ */
+function createSsoSession(returnUrl: string, state: string): Promise<{ sessionId: string; entryUrl: string; expiresIn: number }> {
+  return new Promise((resolve, reject) => {
+    const urlStr = `${INFINI_SSO_API_BASE}/auth/partner/sessions`;
+    const u = new URL(urlStr);
+    const httpMod = u.protocol === 'https:' ? https : http;
+
+    const body = JSON.stringify({ returnUrl, state });
+    const req = httpMod.request(
+      urlStr,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': INFINI_CLIENT_ID,
+          'X-Client-Secret': INFINI_CLIENT_SECRET,
+        },
+      },
+      (res: any) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => (data += chunk.toString()));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.code === 200 && parsed.data?.entryUrl) {
+              resolve({
+                sessionId: String(parsed.data.sessionId || ''),
+                entryUrl: String(parsed.data.entryUrl),
+                expiresIn: Number(parsed.data.expiresIn || 600),
+              });
+            } else {
+              reject(new Error(parsed.message || 'SSO create session failed'));
+            }
+          } catch (err: any) {
+            reject(new Error(`SSO create session invalid response: ${err.message}`));
+          }
+        });
+      },
+    );
+    req.on('error', (err) => reject(new Error(`SSO create session network error: ${err.message}`)));
+    req.setTimeout(10000, () => {
+      req.destroy();
+      reject(new Error('SSO create session timeout'));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * 用一次性 code 兑换用户信息
+ * POST /api/auth/partner/token
+ * 请求体：{ code, grant_type: "authorization_code" }
+ * 响应 data.user: { id, email, username, nickname, avatar, phone }
+ */
+function exchangeSsoCode(code: string): Promise<{ user: any; externalUserId?: string; sessionId?: string; metadata?: any; apiKey?: string }> {
+  return new Promise((resolve, reject) => {
+    const urlStr = `${INFINI_SSO_API_BASE}/auth/partner/token`;
+    const u = new URL(urlStr);
+    const httpMod = u.protocol === 'https:' ? https : http;
+
+    const body = JSON.stringify({ code, grant_type: 'authorization_code' });
+    const req = httpMod.request(
+      urlStr,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Id': INFINI_CLIENT_ID,
+          'X-Client-Secret': INFINI_CLIENT_SECRET,
+        },
+      },
+      (res: any) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => (data += chunk.toString()));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.code === 200 && parsed.data?.user?.id) {
+              resolve({
+                user: parsed.data.user,
+                externalUserId: parsed.data.externalUserId,
+                sessionId: parsed.data.sessionId,
+                metadata: parsed.data.metadata,
+                apiKey: parsed.data.apiKey,
+              });
+            } else {
+              reject(new Error(parsed.message || 'SSO exchange code failed'));
+            }
+          } catch (err: any) {
+            reject(new Error(`SSO exchange code invalid response: ${err.message}`));
+          }
+        });
+      },
+    );
+    req.on('error', (err) => reject(new Error(`SSO exchange code network error: ${err.message}`)));
+    req.setTimeout(10000, () => {
+      req.destroy();
+      reject(new Error('SSO exchange code timeout'));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
 /**
  * 生成 UUID v4
  */
@@ -291,6 +416,88 @@ async function startServer() {
 
   // Middleware for parsing JSON
   app.use(express.json());
+
+  // ─── InfiniSynapse Partner SSO 登录接口 ───
+
+  // GET /api/auth/sso/initiate — 创建登录会话并返回 entryUrl
+  // 前端的 AuthContext.initiateLogin() 调用本接口，拿到 entryUrl 后跳转
+  app.get('/api/auth/sso/initiate', async (req, res) => {
+    try {
+      if (!INFINI_CLIENT_ID || !INFINI_CLIENT_SECRET) {
+        return res.status(500).json({
+          error: '服务端未配置 INFINI_CLIENT_ID / INFINI_CLIENT_SECRET，请在 .env 中填写',
+        });
+      }
+
+      // 生成随机 state 防 CSRF；returnUrl 为用户完成后跳回的完整地址
+      const state = randomState();
+      // 支持前端传入 returnUrl（用于登录后跳回原页面），否则使用默认值
+      const returnUrl =
+        typeof req.query.returnUrl === 'string' && req.query.returnUrl.length > 0
+          ? req.query.returnUrl
+          : PAOPAO_SSO_RETURN_URL;
+
+      const session = await createSsoSession(returnUrl, state);
+
+      // 校验回调域名是否与白名单一致（安全加固）
+      console.log(
+        `[sso/initiate] session created: sessionId=${session.sessionId.slice(0, 12)}..., returnUrl=${returnUrl.slice(0, 60)}...`,
+      );
+
+      res.json({
+        ok: true,
+        sessionId: session.sessionId,
+        entryUrl: session.entryUrl,
+        expiresIn: session.expiresIn,
+        state,
+      });
+    } catch (error: any) {
+      console.error('[sso/initiate] error:', error.message);
+      res.status(502).json({
+        error: `无法创建 InfiniSynapse 登录会话：${error.message}`,
+      });
+    }
+  });
+
+  // POST /api/auth/sso/exchange — 用一次性 code 兑换用户信息
+  // 前端的 AuthContext.exchangeCode(code) 调用本接口
+  app.post('/api/auth/sso/exchange', async (req, res) => {
+    try {
+      if (!INFINI_CLIENT_ID || !INFINI_CLIENT_SECRET) {
+        return res.status(500).json({
+          error: '服务端未配置 INFINI_CLIENT_ID / INFINI_CLIENT_SECRET，请在 .env 中填写',
+        });
+      }
+
+      const { code } = req.body || {};
+      if (!code || typeof code !== 'string') {
+        return res.status(400).json({ error: '缺少授权码（code）' });
+      }
+
+      const result = await exchangeSsoCode(code);
+
+      // 只返回安全字段，不泄露外部 token / apiKey 等敏感信息（如需 apiKey 可后续按需下发）
+      res.json({
+        ok: true,
+        user: {
+          id: String(result.user.id || ''),
+          email: typeof result.user.email === 'string' ? result.user.email : undefined,
+          username: typeof result.user.username === 'string' ? result.user.username : undefined,
+          nickname: typeof result.user.nickname === 'string' ? result.user.nickname : undefined,
+          avatar: typeof result.user.avatar === 'string' ? result.user.avatar : undefined,
+          phone: typeof result.user.phone === 'string' ? result.user.phone : undefined,
+        },
+        externalUserId: result.externalUserId,
+        sessionId: result.sessionId,
+        metadata: result.metadata,
+      });
+    } catch (error: any) {
+      console.error('[sso/exchange] error:', error.message);
+      res.status(401).json({
+        error: `登录失败：${error.message}`,
+      });
+    }
+  });
 
   // API Route: AI Teacher Dialogue Chat (with history) — 统一走 InfiniSynapse Agent
   app.post('/api/chat', async (req, res) => {
