@@ -216,25 +216,14 @@ function WebAppShell() {
               </div>
             </div>
             */}
+            {/* 右上角登录按钮已按需求隐藏（AuthModal 不再由顶栏触发） */}
+            {/*
             {auth.isLoggedIn && auth.session ? (
-              <button
-                disabled
-                className="flex cursor-default items-center gap-2 rounded-full bg-indigo-50 py-1 pl-1 pr-3 opacity-80"
-                title="已登录"
-              >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-bold text-indigo-600">
-                  {(auth.session.user.nickname || auth.session.user.username || auth.session.user.email || 'I').slice(0, 1).toUpperCase()}
-                </span>
-                <span className="text-xs font-semibold text-indigo-700">{auth.session.user.nickname || auth.session.user.username || auth.session.user.email || 'InfiniSynapse 用户'}</span>
-              </button>
+              <button ...已登录头像...</button>
             ) : (
-              <button
-                onClick={() => setAuthOpen(true)}
-                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
-              >
-                使用 InfiniSynapse 登录
-              </button>
+              <button ...使用 InfiniSynapse 登录...</button>
             )}
+            */}
           </div>
         </header>
 

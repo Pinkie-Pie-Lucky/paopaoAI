@@ -18,6 +18,12 @@ dotenv.config();
 const INFINISYNAPSE_API_KEY = process.env.INFINISYNAPSE_API_KEY || '';
 const INFINISYNAPSE_SERVER_URL = (process.env.INFINISYNAPSE_SERVER_URL || 'https://app.infinisynapse.cn').replace(/\/+$/, '');
 
+/* ==================== DeepSeek 兜底集成 ==================== */
+// 兜底原则：InfiniSynapse Server API 未调通 → 先用实时行情数据做规则化判断 →
+// 实时数据也不可用时最后降级到 DeepSeek（OpenAI 兼容接口 deepseek-chat）。
+// 在 .env 中配置 DEEPSEEK_API_KEY 后生效；留空则该级自动跳过，仅作为最后兜底。
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+
 /* ==================== InfiniSynapse Partner SSO 集成 ==================== */
 // 参考：https://infinisynapse.cn/zh/docs/InfiniSynapse%20Partner%20SSO%20Integration%20Guide
 // 在 https://app.infinisynapse.cn/tasks → 设置 → 第三方接入 申请 clientId / clientSecret
@@ -441,9 +447,183 @@ async function callInfiniSynapse(
   }
 }
 
+/**
+ * 调用 DeepSeek（OpenAI 兼容 /chat/completions），作为 AI 兜底链最后一环。
+ * 仅当 InfiniSynapse 与实时行情均不可用时才走到这里。
+ */
+async function callDeepSeek(
+  text: string,
+  options?: { jsonResult?: boolean }
+): Promise<string> {
+  if (!DEEPSEEK_API_KEY) {
+    throw new Error('DEEPSEEK_API_KEY is not configured. Please set it in .env file.');
+  }
+  const payload = {
+    model: 'deepseek-chat',
+    messages: [
+      {
+        role: 'system',
+        content: options?.jsonResult
+          ? '你是严谨的A股市场分析助手。严格只输出一个合法 JSON 对象，不要输出任何其他文字、Markdown 或解释。'
+          : '你是"泡泡老师"，亲切、专业、有幽默感的A股投研助手。回答用简体中文、结构清晰、善用列表与加粗；务必在末尾加上："泡泡老师提醒：股市有风险，投资需谨慎！以上研判仅供泡泡模拟盘练习参考，不构成实盘买入建议哦。"',
+      },
+      { role: 'user', content: text },
+    ],
+    temperature: 0.6,
+    max_tokens: 1500,
+  };
+  return new Promise((resolve, reject) => {
+    const u = new URL('https://api.deepseek.com/chat/completions');
+    const req = https.request(
+      u,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+        },
+      },
+      (res: any) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => (data += chunk.toString('utf8')));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed?.choices?.[0]?.message?.content;
+            if (typeof content === 'string' && content.trim()) {
+              resolve(content.trim());
+            } else {
+              reject(new Error(parsed?.error?.message || 'DeepSeek empty response'));
+            }
+          } catch (e: any) {
+            reject(new Error(`DeepSeek invalid response: ${e.message}`));
+          }
+        });
+      },
+    );
+    req.on('error', (err) => reject(new Error(`DeepSeek network error: ${err.message}`)));
+    req.setTimeout(60000, () => {
+      req.destroy();
+      reject(new Error('DeepSeek timeout'));
+    });
+    req.write(JSON.stringify(payload));
+    req.end();
+  });
+}
+
+/**
+ * 🔁 AI 兜底链（统一入口）
+ * 兜底原则：
+ *   1. 优先调 InfiniSynapse Server API（Agent 深度分析）
+ *   2. 若未调通 → 用实时行情数据做规则化判断（不依赖任何 AI，从东方财富/腾讯拉实况计算）
+ *   3. 若实时数据也不可用 → 最后降级到 DeepSeek（需在 .env 配置 DEEPSEEK_API_KEY）
+ * 无论走哪一级，都会返回可读文本，保证接口永不中断。
+ */
+type AgentResult = { answer: string; taskId: string; suggestedPrompts: string[]; source: 'infini' | 'market-data' | 'deepseek' };
+
+async function callAgentSmart(
+  text: string,
+  options?: { history?: Array<{ role: string; content: string }>; taskId?: string; connId?: string; requirePureText?: boolean }
+): Promise<AgentResult> {
+  const suggestedPrompts = [
+    '再详细分析一下底层逻辑',
+    '有什么潜在风险需要注意？',
+    '对比历史走势怎么看？',
+  ];
+
+  // ── 第 1 级：InfiniSynapse Agent ──
+  try {
+    const r = await callInfiniSynapse(text, options);
+    if (r.answer && r.answer.trim() && !/^\s*\{[\s\S]*\}\s*$/.test(r.answer) || (options?.requirePureText !== true && r.answer)) {
+      return { answer: r.answer.trim(), taskId: r.taskId, suggestedPrompts: r.suggestedPrompts, source: 'infini' };
+    }
+  } catch (e: any) {
+    console.warn('[callAgentSmart] InfiniSynapse failed:', e.message);
+  }
+
+  // ── 第 2 级：实时行情规则化兜底 ──
+  try {
+    // fetchMarketData 定义在 startServer 内部，通过 globalThis 桥接访问（startServer 启动时挂载）
+    const fetchMarketDataGlobal = (globalThis as any).__paopaoFetchMarketData as
+      | (() => Promise<any>)
+      | undefined;
+    if (!fetchMarketDataGlobal) {
+      console.warn('[callAgentSmart] __paopaoFetchMarketData not mounted yet');
+      throw new Error('__paopaoFetchMarketData not mounted');
+    }
+    const md = await fetchMarketDataGlobal();
+    const hasData = md.indices.length > 0 || md.sectors.length > 0;
+    if (hasData) {
+      const answer = buildMarketDataReply(text, md);
+      return { answer, taskId: '', suggestedPrompts, source: 'market-data' };
+    }
+  } catch (e: any) {
+    console.warn('[callAgentSmart] market-data fallback failed:', e.message);
+  }
+
+  // ── 第 3 级：DeepSeek 兜底 ──
+  try {
+    const answer = await callDeepSeek(text, { jsonResult: options?.requirePureText !== true });
+    return { answer, taskId: '', suggestedPrompts, source: 'deepseek' };
+  } catch (e: any) {
+    console.warn('[callAgentSmart] DeepSeek fallback failed:', e.message);
+  }
+
+  // 兜底链全部失败：返回通用提示
+  return {
+    answer: '哎呀，泡泡暂时无法获取到实时行情，也未能连接智能引擎，请稍后再试。🎈\n\n泡泡老师提醒：股市有风险，投资需谨慎！',
+    taskId: '',
+    suggestedPrompts,
+    source: 'market-data',
+  };
+}
+
+/**
+ * 用实时行情数据生成规则化判断（不调用任何 AI）。
+ * 基于三大指数涨跌 + 板块广度 + 涨跌停分布，给出泡泡老师口吻的解读。
+ */
+function buildMarketDataReply(text: string, md: any): string {
+  const pctTxt = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  const indices = md.indices.map((i: any) => `${i.name} ${i.price?.toFixed?.(2) ?? i.price}（${pctTxt(Number(i.changePercent) || 0)}）`);
+  const sectorCount = md.sectors.length;
+  const upCount = md.sectors.filter((s: any) => Number(s.changePercent) > 0).length;
+  const downCount = md.sectors.filter((s: any) => Number(s.changePercent) < 0).length;
+  const topGainers = [...md.sectors].sort((a: any, b: any) => Number(b.changePercent) - Number(a.changePercent)).slice(0, 3);
+  const topLosers = [...md.sectors].sort((a: any, b: any) => Number(a.changePercent) - Number(b.changePercent)).slice(0, 3);
+  const { limitUp = 0, limitDown = 0, stockCount = 0 } = md.marketPulse || {};
+
+  const query = text.slice(0, 80).replace(/\s+/g, ' ');
+  let summary =
+    upCount > downCount
+      ? `市场整体偏活跃：${sectorCount} 个板块中 ${upCount} 涨 ${downCount} 跌（涨停 ${limitUp} / 跌停 ${limitDown}，样本 ${stockCount} 只）。`
+      : downCount > upCount
+        ? `市场整体偏谨慎：${sectorCount} 个板块中 ${upCount} 涨 ${downCount} 跌（涨停 ${limitUp} / 跌停 ${limitDown}，样本 ${stockCount} 只）。`
+        : `市场多空平衡：${sectorCount} 个板块中 ${upCount} 涨 ${downCount} 跌。`;
+
+  const topGainTxt = topGainers.length ? `涨幅居前：${topGainers.map((s: any) => `${s.name} ${pctTxt(Number(s.changePercent))}`).join('、')}。` : '';
+  const topLossTxt = topLosers.length ? `跌幅居前：${topLosers.map((s: any) => `${s.name} ${pctTxt(Number(s.changePercent))}`).join('、')}。` : '';
+
+  return [
+    `🎈 泡泡老师基于实时行情为你解读「${query || '今日市场'}」：`,
+    `📊 ${indices.join('；')}。`,
+    summary,
+    topGainTxt,
+    topLossTxt,
+    `💡 泡泡建议：先看清大盘与热点方向是否存在真实的市场依据，再思考背后的资金逻辑；泡泡仅做行情解读，不构成买卖建议。`,
+    `泡泡老师提醒：股市有风险，投资需谨慎！以上研判仅供泡泡模拟盘练习参考，不构成实盘买入建议哦。`,
+  ].filter(Boolean).join('\n');
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 8080;
+
+  // 挂载 fetchMarketData 到 globalThis，供模块级 callAgentSmart 兜底链运行时访问
+  // （fetchMarketData 定义在 startServer 内部，模块级函数无法直接引用）
+  async function globalFetchMarketData() {
+    return fetchMarketData();
+  }
+  (globalThis as any).__paopaoFetchMarketData = globalFetchMarketData;
 
   // Middleware for parsing JSON
   app.use(express.json());
@@ -561,7 +741,8 @@ async function startServer() {
       }
       fullText += `\n\n【用户最新提问】\n${message}\n\n请以泡泡老师身份作答。`;
 
-      const result = await callInfiniSynapse(fullText);
+      // 走 AI 兜底链：InfiniSynapse → 实时行情规则化 → DeepSeek
+      const result = await callAgentSmart(fullText || '');
 
       let suggestedPrompts = [
         '这只股票的技术支撑位在多少？',
@@ -605,7 +786,8 @@ async function startServer() {
         return res.status(400).json({ error: 'Message is required' });
       }
 
-      const result = await callInfiniSynapse(message, taskId ? { taskId } : undefined);
+      // 走 AI 兜底链：InfiniSynapse → 实时行情规则化 → DeepSeek
+      const result = await callAgentSmart(message, taskId ? { taskId } : undefined);
       res.json({
         reply: result.answer,
         taskId: result.taskId,
@@ -637,7 +819,8 @@ async function startServer() {
 3. 【泡泡埋伏点睛】 推荐关注半导体与机器人低吸机会。
       `;
 
-      const result = await callInfiniSynapse(prompt);
+      // 走 AI 兜底链：InfiniSynapse → 实时行情规则化 → DeepSeek
+      const result = await callAgentSmart(prompt, { requirePureText: true });
 
       res.json({
         report: result.answer || '今日大盘震荡上行，科创指数强势领涨，建议高避题材炒作，积极低吸半导体龙头。'
