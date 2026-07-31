@@ -28,7 +28,8 @@ const NAV: { id: WebNav; label: string; icon: typeof Home; desc: string }[] = [
   { id: 'map', label: '市场地图', icon: Compass, desc: '板块全景热力图' },
   { id: 'watchlist', label: '我的关注', icon: Star, desc: '自选股与预警' },
   { id: 'ai', label: 'AI泡泡', icon: MessageSquare, desc: '智能投研问答' },
-  { id: 'mine', label: '个人中心', icon: User, desc: '账户与偏好设置' },
+  // 「个人中心」标签暂隐藏：登录后可通过右上角头像进入个人中心
+  // { id: 'mine', label: '个人中心', icon: User, desc: '账户与偏好设置' },
 ];
 
 const PAGE_TITLE: Record<WebNav, string> = {
