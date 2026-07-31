@@ -921,54 +921,53 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
           </div>
         </section>
 
-        {/* ===== 右栏：与左侧一致的板块榜单 + 选中详情 + 色阶 ===== */}
+        {/* ===== 右栏：领涨/领跌页签 + 板块榜单/详情合并卡片 + 色阶 ===== */}
         <aside className="space-y-4">
-          {/* 当前标签榜单（与左侧热力图严格一致） */}
-          <section className="rounded-2xl border bg-white shadow-sm" style={{ borderColor: BORDER }}>
-            <div className="flex items-center gap-1.5 border-b px-4 py-2.5" style={{ borderColor: BORDER }}>
-              {meta.icon === 'up' && <TrendingUp size={14} className="text-rose-600" />}
-              {meta.icon === 'down' && <TrendingDown size={14} className="text-emerald-600" />}
-              {meta.icon === 'star' && <Sparkles size={14} className="text-indigo-600" />}
-              <span className="text-xs font-bold text-gray-800">{meta.label}板块</span>
-              <span className="ml-auto text-[10px] text-gray-400">{activeRealSectors.length} 个·实时</span>
+          <div className="rounded-2xl border bg-white shadow-sm overflow-hidden" style={{ borderColor: BORDER }}>
+            {/* 页签：领涨 / 领跌 / 泡泡精选（数字 = 实际展示板块数，与左侧标签联动） */}
+            <div className="flex gap-1 border-b px-2 py-2" style={{ borderColor: BORDER }}>
+              {([
+                { id: 'gainers', label: '领涨', icon: TrendingUp },
+                { id: 'losers', label: '领跌', icon: TrendingDown },
+                { id: 'featured', label: '泡泡精选', icon: Sparkles },
+              ] as const).map((t) => {
+                const Icon = t.icon;
+                const active = realFilter === t.id;
+                const count = filterRealSectors[t.id].length;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      setRealFilter(t.id);
+                      setSelectedRealSector(null);
+                    }}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+                      active ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <Icon size={14} />
+                    {t.label}
+                    <span className={`rounded-full px-1.5 text-[10px] ${active ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="divide-y p-2" style={{ borderColor: BORDER }}>
-              {activeRealSectors.length > 0 ? activeRealSectors.map((s, i) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setSelectedRealSector(s)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[#f7f8fa] ${
-                    selectedRealSector?.id === s.id ? 'bg-indigo-50/60' : ''
-                  }`}
-                >
-                  <span className="w-4 text-center font-mono text-[11px] font-bold text-gray-400">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-gray-800">{s.name}</p>
-                  </div>
-                  <span className="font-mono text-[12px] font-semibold" style={{ color: colorOf(s.changePercent) }}>
-                    {pct(s.changePercent)}
-                  </span>
-                </button>
-              )) : (
-                <p className="py-3 text-center text-[11px] text-gray-400">板块数据加载中…</p>
-              )}
-            </div>
-          </section>
 
-          {/* 选中板块详情（右侧展示完整板块详情页；无 mock 匹配时回退基础信息） */}
-          {selectedRealSector && (
-            <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-              {selectedRealSectorDetail ? (
+            {/* 榜单 + 详情（当前标签的板块列表；选中后展示该板块完整详情） */}
+            <div className="p-2">
+              {selectedRealSector && selectedRealSectorDetail ? (
                 <SectorDetailCard
                   detail={selectedRealSectorDetail}
                   onSelectStock={(code) => {
-                    /* 原逻辑：选中个股；真实板块详情无个股跳转需求，保留桩 */
+                    /* 保留桩：真实板块详情无个股跳转需求 */
                   }}
                   onAsk={onAskTeacherAboutStock}
                 />
-              ) : (
-                <>
+              ) : selectedRealSector ? (
+                <div className="p-3">
                   <h3 className="text-[15px] font-bold text-gray-900">{selectedRealSector.name}</h3>
                   <p className="mt-1 font-mono text-2xl font-bold" style={{ color: colorOf(selectedRealSector.changePercent) }}>
                     {pct(selectedRealSector.changePercent)}
@@ -981,17 +980,31 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
                   >
                     问泡泡 · 分析「{selectedRealSector.name}」
                   </button>
-                </>
+                </div>
+              ) : (
+                <div className="divide-y" style={{ borderColor: BORDER }}>
+                  {activeRealSectors.length > 0 ? activeRealSectors.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedRealSector(s)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[#f7f8fa]"
+                    >
+                      <span className="w-4 text-center font-mono text-[11px] font-bold text-gray-400">{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-semibold text-gray-800">{s.name}</p>
+                      </div>
+                      <span className="font-mono text-[12px] font-semibold" style={{ color: colorOf(s.changePercent) }}>
+                        {pct(s.changePercent)}
+                      </span>
+                    </button>
+                  )) : (
+                    <p className="py-3 text-center text-[11px] text-gray-400">板块数据加载中…</p>
+                  )}
+                </div>
               )}
-            </section>
-          )}
-
-          {/* 原右栏页签（详情/领涨/领跌个股榜）——已按需求注释保留 */}
-          {/*
-          <div className="flex gap-1 border-b px-2 py-2" style={{ borderColor: BORDER }}>
-            {([{ id: 'detail', label: '详情', icon: Grid3x3 }, { id: 'gainers', label: '领涨', icon: TrendingUp }, { id: 'losers', label: '领跌', icon: TrendingDown }] as const).map((t) => (...))}
+            </div>
           </div>
-          */}
 
           {/* 色阶说明（常驻底部） */}
           <section className="rounded-2xl border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
