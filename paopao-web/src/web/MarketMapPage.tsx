@@ -682,11 +682,11 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
     const gainers = realSectors
       .filter((s) => s.changePercent > 0)
       .sort((a, b) => b.changePercent - a.changePercent)
-      .slice(0, 8);
+      .slice(0, 10);
     const losers = realSectors
       .filter((s) => s.changePercent < 0)
       .sort((a, b) => a.changePercent - b.changePercent)
-      .slice(0, 8);
+      .slice(0, 10);
     const featured = [...realSectors]
       .sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))
       .slice(0, 10);
@@ -697,10 +697,19 @@ export function MarketMapPage({ onAskTeacherAboutStock }: MarketMapPageProps) {
   const activeRealSectors = filterRealSectors[realFilter];
 
   // 新增：真实板块等权重 treemap 布局（真实板块无市值数据，value 统一 100）
-  const realTileConstraint = useMemo(() => layoutTreemap(
-    activeRealSectors.map((s) => ({ id: s.id, name: s.name, changePercent: s.changePercent, value: 100 })),
-    { x: 0, y: 0, w: 160, h: 100 },
-  ), [activeRealSectors]);
+  const realTileConstraint = useMemo(() => {
+    // 面积与 |涨跌幅| 正相关：绝对值越大色块面积越大
+    const MIN_VALUE = 0.5; // 防止 0 涨跌幅导致面积塌成 0
+    return layoutTreemap(
+      activeRealSectors.map((s) => ({
+        id: s.id,
+        name: s.name,
+        changePercent: s.changePercent,
+        value: Math.max(Math.abs(s.changePercent), MIN_VALUE),
+      })),
+      { x: 0, y: 0, w: 160, h: 100 },
+    );
+  }, [activeRealSectors]);
 
   // 新增：全市场真实涨跌板块统计
   const realUpCount = realSectors.filter((s) => s.changePercent >= 0).length;
