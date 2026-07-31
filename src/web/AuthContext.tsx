@@ -24,6 +24,9 @@ import {
 } from 'react';
 
 const SESSION_KEY = 'paopao_session_v1'; // Session | null
+// 与 AuthCallback.tsx 中的 key 保持一致（SSO 防 CSRF state 校验）
+const SSO_STATE_KEY = 'paopao_sso_state_v1';
+const SSO_REDIRECT_KEY = 'paopao_sso_redirect_v1';
 
 export interface InfiniUser {
   /** InfiniSynapse 用户唯一 ID（建议用作绑定键） */
@@ -99,6 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!res.ok || !body?.entryUrl) {
         return { ok: false, error: body?.error || '无法发起 InfiniSynapse 登录，请稍后再试' };
       }
+      // 保存 state（防 CSRF）与跳回路径，供 /auth/callback 校验；否则跳回时报「state 不匹配」
+      if (body.state) {
+        localStorage.setItem(SSO_STATE_KEY, String(body.state));
+      }
+      localStorage.setItem(SSO_REDIRECT_KEY, window.location.pathname + window.location.search);
       // 跳转到 InfiniSynapse 登录页；用户完成后会自动跳回 returnUrl(/auth/callback)
       window.location.href = body.entryUrl;
       return { ok: true };
