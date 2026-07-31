@@ -94,16 +94,31 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [stories, setStories] = useState<MarketStory[]>(webStories);
   const [storiesLoading, setStoriesLoading] = useState(false);
 
+  const loadStories = async (force = false) => {
+    try {
+      setStoriesLoading(true);
+      const res = await fetch(`/api/morning-report${force ? '?refresh=1' : ''}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data?.stories) || data.stories.length === 0) return;
+      setStories(data.stories as MarketStory[]);
+    } catch {
+      // 保持 mock
+    } finally {
+      setStoriesLoading(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // 首次加载（用户刷新页面）始终拉取
       try {
         setStoriesLoading(true);
         const res = await fetch('/api/morning-report');
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (cancelled || !Array.isArray(data?.stories) || data.stories.length === 0) return;
-        // 后端返回的 stories 已含 reasoning/teacher/professional/evidence 完整结构
         setStories(data.stories as MarketStory[]);
       } catch {
         // 保持 mock
@@ -111,8 +126,25 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         if (!cancelled) setStoriesLoading(false);
       }
     })();
+
+    // 每 15 分钟自动刷新一次，仅交易时段（isOpen=true，排除午休/收盘/周末/节假日，由后端 getMarketStatus 统一判断）
+    const timer = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const statusRes = await fetch('/api/market-overview');
+        if (!statusRes.ok || cancelled) return;
+        const statusData = await statusRes.json();
+        if (statusData?.marketStatus?.isOpen === true) {
+          loadStories(true);
+        }
+      } catch {
+        // 状态查询失败则不刷新
+      }
+    }, 15 * 60 * 1000);
+
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, []);
 

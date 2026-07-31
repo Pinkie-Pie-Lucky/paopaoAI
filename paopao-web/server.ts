@@ -1636,7 +1636,9 @@ async function startServer() {
   app.get('/api/morning-report', async (req, res) => {
     console.log(`[morning-report] incoming request, ref=${req.header('referer') || 'none'}, ua=${req.header('user-agent')?.substring(0, 40) || 'none'}`);
     const now = Date.now();
-    if (morningReportCache && (now - morningReportCache.timestamp) < REPORT_CACHE_TTL) {
+    // refresh=1 强制绕过缓存（供前端 15 分钟定时刷新使用）
+    const forceRefresh = req.query.refresh === '1';
+    if (!forceRefresh && morningReportCache && (now - morningReportCache.timestamp) < REPORT_CACHE_TTL) {
       console.log(`[morning-report] served from cache, data.sentiment=${morningReportCache.data.sentiment}, summaryLen=${morningReportCache.data.summaryText?.length || 0}`);
       return res.json(morningReportCache.data);
     }
@@ -1830,12 +1832,31 @@ async function startServer() {
   });
 
   // 判断是否为A股交易时段
+  // 中国法定节假日（休市日）：2025-2027 覆盖全部主要节假日
+  // 格式：'MM-DD' 表示当天休市
+  const CN_HOLIDAYS: Record<string, string[]> = {
+    '2025': ['01-01', '01-28', '01-29', '01-30', '01-31', '02-01', '02-02', '02-03', '02-04', '04-04', '04-05', '05-01', '05-02', '05-05', '06-02', '10-01', '10-02', '10-03', '10-06', '10-07', '10-08'],
+    '2026': ['01-01', '01-02', '02-16', '02-17', '02-18', '02-19', '02-20', '02-23', '02-24', '04-06', '05-01', '05-04', '05-05', '06-19', '09-25', '10-01', '10-02', '10-05', '10-06', '10-07', '10-08', '10-09'],
+    '2027': ['01-01', '02-08', '02-09', '02-10', '02-11', '02-12', '02-15', '02-16', '04-05', '05-03', '05-04', '06-10', '10-01', '10-04', '10-05', '10-06', '10-07', '10-08'],
+  };
+  function isCnHoliday(date: Date): boolean {
+    const year = String(date.getFullYear());
+    const days = CN_HOLIDAYS[year];
+    if (!days) return false;
+    const key = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return days.includes(key);
+  }
   function getMarketStatus() {
     const now = new Date();
     const day = now.getDay(); // 0=周日, 1-5=周一至周五, 6=周六
     const hour = now.getHours();
     const minute = now.getMinutes();
     const timeNum = hour * 100 + minute;
+
+    // 法定节假日休市（春节/国庆等）
+    if (isCnHoliday(now)) {
+      return { isOpen: false, phase: 'holiday', label: '节假日休市' };
+    }
 
     // 周末不开盘
     if (day === 0 || day === 6) {
