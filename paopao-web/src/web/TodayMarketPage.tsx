@@ -42,6 +42,20 @@ const UP = '#e5484d';
 const DOWN = '#0ca678';
 const BORDER = '#eef0f3';
 
+// 模块级缓存：StrictMode 下 effect 会执行两次，用同一个 pending Promise 去重请求
+let cachedOverviewPromise: Promise<any> | null = null;
+function fetchMarketOverview() {
+  if (!cachedOverviewPromise) {
+    cachedOverviewPromise = fetch('/api/market-overview')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('not ok'))))
+      .catch((err) => {
+        cachedOverviewPromise = null; // 失败则允许下次重试
+        throw err;
+      });
+  }
+  return cachedOverviewPromise;
+}
+
 type StoryMode = 'beginner' | 'professional';
 
 interface TodayMarketPageProps {
@@ -90,18 +104,16 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [storyMode, setStoryMode] = useState<StoryMode>('beginner');
   const [expandedStories, setExpandedStories] = useState<Set<string>>(new Set());
   const [thumbsFeedback, setThumbsFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
-  // 实时指数：从后端 /api/market-overview 拉取，失败时回退静态 mock
-  const [liveIndices, setLiveIndices] = useState<typeof webIndices>(webIndices);
-  // 泡泡解读：基于实时指数动态生成，失败时回退静态 headline
-  const [liveHeadline, setLiveHeadline] = useState<string>(marketHeadline);
+  // 实时指数：null=加载中（不渲染 mock，避免 mock→实时跳变闪烁）
+  const [liveIndices, setLiveIndices] = useState<typeof webIndices | null>(null);
+  // 泡泡解读：加载中显示占位，实时数据到达后一次渲染
+  const [liveHeadline, setLiveHeadline] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/market-overview');
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await fetchMarketOverview();
         const indices = Array.isArray(data?.indices) && data.indices.length > 0 ? data.indices : null;
         if (!indices || cancelled) return;
 
@@ -137,7 +149,11 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
           );
         }
       } catch {
-        // 保持 mock 数据
+        // 拉取失败：回退静态 mock 一次性渲染（不再二次跳变）
+        if (!cancelled) {
+          setLiveIndices(webIndices);
+          setLiveHeadline(marketHeadline);
+        }
       }
     })();
     return () => {
@@ -188,7 +204,9 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
           </p>
           <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
             <p className="text-[11px] font-bold text-indigo-500">泡泡解读</p>
-            <p className="mt-1 text-[13px] leading-6 text-gray-700">{liveHeadline}</p>
+            <p className="mt-1 text-[13px] leading-6 text-gray-700">
+              {liveHeadline === null ? '泡泡正在连接实时行情…' : liveHeadline}
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 gap-2 lg:flex-col">
@@ -214,7 +232,16 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
         transition={{ duration: 0.25, delay: 0.05 }}
         className="grid grid-cols-2 gap-4 lg:grid-cols-4"
       >
-        {liveIndices.map((idx) => {
+        {liveIndices === null ? (
+          // 加载占位：避免先显示 mock 再跳到实时的闪烁
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border bg-white p-4" style={{ borderColor: BORDER }}>
+              <div className="h-3 w-16 animate-pulse rounded bg-gray-100" />
+              <div className="mt-3 h-7 w-24 animate-pulse rounded bg-gray-100" />
+              <div className="mt-2 h-4 w-20 animate-pulse rounded bg-gray-100" />
+            </div>
+          ))
+        ) : liveIndices.map((idx) => {
           const up = idx.changePercent >= 0;
           const color = up ? UP : DOWN;
           return (
