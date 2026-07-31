@@ -11,7 +11,7 @@
  *  - A股配色：涨 #e5484d / 跌 #0ca678；边框 #eef0f3；侧边栏 #0b1120
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Activity,
@@ -29,8 +29,8 @@ import {
 import { MarketStory, StockItem } from '../types';
 import { formatChineseDate, mockUserProfile } from '../data';
 import { BrainMark } from './BrainMark';
+import { useLiveIndices } from './useLiveIndices';
 import {
-  webIndices,
   webStories,
   heatSectors,
   getRankedStocks,
@@ -41,20 +41,6 @@ import {
 const UP = '#e5484d';
 const DOWN = '#0ca678';
 const BORDER = '#eef0f3';
-
-// 模块级缓存：StrictMode 下 effect 会执行两次，用同一个 pending Promise 去重请求
-let cachedOverviewPromise: Promise<any> | null = null;
-function fetchMarketOverview() {
-  if (!cachedOverviewPromise) {
-    cachedOverviewPromise = fetch('/api/market-overview')
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error('not ok'))))
-      .catch((err) => {
-        cachedOverviewPromise = null; // 失败则允许下次重试
-        throw err;
-      });
-  }
-  return cachedOverviewPromise;
-}
 
 type StoryMode = 'beginner' | 'professional';
 
@@ -104,56 +90,50 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [storyMode, setStoryMode] = useState<StoryMode>('beginner');
   const [expandedStories, setExpandedStories] = useState<Set<string>>(new Set());
   const [thumbsFeedback, setThumbsFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
-  // 实时指数：null=加载中（不渲染 mock，避免 mock→实时跳变闪烁）
-  const [liveIndices, setLiveIndices] = useState<typeof webIndices | null>(null);
+  // 实时指数：与市场地图页共用同一份实时数据（模块级缓存保证两页一致）
+  const { indices: liveIndices, isLive } = useLiveIndices();
   // 泡泡解读：加载中显示占位，实时数据到达后一次渲染
   const [liveHeadline, setLiveHeadline] = useState<string | null>(null);
+
+  // 动态泡泡解读：优先用三大指数当前点位与涨跌；拉取失败回退静态口播
+  useEffect(() => {
+    if (!liveIndices) return;
+    if (!isLive) {
+      setLiveHeadline(marketHeadline);
+      return;
+    }
+    const byName = (name: string) => liveIndices.find((i) => (i.name || '').includes(name));
+    const sh = byName('上证');
+    const sz = byName('深证');
+    const cy = byName('创业板');
+    if (!sh || !sz || !cy) return;
+    const upCount = liveIndices.filter((i) => i.changePercent > 0).length;
+    const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    const move = upCount >= 2 ? '放量上行' : '分化整理';
+    setLiveHeadline(
+      `🎈 泡泡老师发现，今日大盘${move}，上证指数约${sh.value.toFixed(2)}点（${pct(sh.changePercent)}），深证成指约${sz.value.toFixed(2)}点，创业板指约${cy.value.toFixed(2)}点。指数普遍走强，关注热点能否持续、以及资金是否出现高位分歧，值得留意后续量能变化。`,
+    );
+  }, [liveIndices, isLive]);
+
+  // 真实板块涨跌（/api/sectors），用于涨跌榜
+  const [realSectors, setRealSectors] = useState<Array<{ id: string; name: string; changePercent: number }> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const data = await fetchMarketOverview();
-        const indices = Array.isArray(data?.indices) && data.indices.length > 0 ? data.indices : null;
-        if (!indices || cancelled) return;
-
-        const byName = (name: string) => indices.find((i: any) => (i.name || '').includes(name));
-        const sh = byName('上证');
-        const sz = byName('深证');
-        const cy = byName('创业板');
-        const upCount = indices.filter((i: any) => Number(i.changePercent) > 0).length;
-
-        const merged = webIndices.map((mock) => {
-          const live = indices.find((i: any) => (i.code || '').replace(/\.(SH|SZ|BJ)$/, '') === mock.code.replace(/\.(SH|SZ|BJ)$/, ''));
-          if (!live) return mock;
-          const price = Number(live.price) || 0;
-          const changePercent = Number(live.changePercent) || 0;
-          // 反推涨跌点：prevClose = price / (1 + pct/100)，changeValue = price - prevClose
-          const changeValue = Math.round((price - price / (1 + changePercent / 100)) * 100) / 100;
-          return {
-            code: mock.code,
-            name: mock.name,
-            value: price,
-            changePercent,
-            changeValue: Number.isFinite(changeValue) ? changeValue : 0,
-          };
-        });
-        setLiveIndices(merged);
-
-        // 动态泡泡解读：优先用三大指数当前点位与涨跌
-        if (sh && sz && cy) {
-          const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
-          const move = upCount >= 2 ? '放量上行' : '分化整理';
-          setLiveHeadline(
-            `🎈 泡泡老师发现，今日大盘${move}，上证指数约${sh.price.toFixed(2)}点（${pct(Number(sh.changePercent))}），深证成指约${sz.price.toFixed(2)}点，创业板指约${cy.price.toFixed(2)}点。指数普遍走强，关注热点能否持续、以及资金是否出现高位分歧，值得留意后续量能变化。`,
-          );
-        }
+        const res = await fetch('/api/sectors');
+        if (!res.ok) return;
+        const data = await res.json();
+        const sectors = Array.isArray(data?.sectors) ? data.sectors : [];
+        if (cancelled || sectors.length === 0) return;
+        setRealSectors(
+          sectors
+            .filter((s: any) => s && s.name && Number.isFinite(Number(s.changePercent)))
+            .map((s: any) => ({ id: String(s.id || ''), name: String(s.name), changePercent: Number(s.changePercent) })),
+        );
       } catch {
-        // 拉取失败：回退静态 mock 一次性渲染（不再二次跳变）
-        if (!cancelled) {
-          setLiveIndices(webIndices);
-          setLiveHeadline(marketHeadline);
-        }
+        // 保持 null（回退 mock）
       }
     })();
     return () => {
@@ -161,9 +141,29 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
     };
   }, []);
 
-  const ranked = getRankedStocks();
-  const topMovers = ranked.slice(0, 8);
-  const worst = [...ranked].reverse().slice(0, 2);
+  // 涨跌榜统一为板块结构（name + changePercent），真实板块优先，mock 兜底
+  const mockSectorRanking = useMemo(
+    () =>
+      heatSectors
+        .map((s) => ({ id: s.id, name: s.name, changePercent: s.changePercent }))
+        .sort((a, b) => b.changePercent - a.changePercent),
+    [],
+  );
+  const rankingSectors = realSectors ?? [];
+  const topMovers = useMemo(
+    () =>
+      rankingSectors.length > 0
+        ? [...rankingSectors].sort((a, b) => b.changePercent - a.changePercent).slice(0, 8)
+        : mockSectorRanking.slice(0, 8),
+    [rankingSectors, mockSectorRanking],
+  );
+  const worst = useMemo(
+    () =>
+      rankingSectors.length > 0
+        ? [...rankingSectors].sort((a, b) => a.changePercent - b.changePercent).slice(0, 2)
+        : [...mockSectorRanking].reverse().slice(0, 2),
+    [rankingSectors, mockSectorRanking],
+  );
 
   const hour = new Date().getHours();
   const greet =
@@ -621,7 +621,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
                 const up = stock.changePercent >= 0;
                 const color = up ? UP : DOWN;
                 return (
-                  <div key={stock.code} className="flex items-center gap-3 py-2.5">
+                  <div key={stock.id || `${stock.name}-${i}`} className="flex items-center gap-3 py-2.5">
                     <span
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold"
                       style={{ background: up ? 'rgba(229,72,77,0.1)' : 'rgba(12,166,120,0.1)', color }}
@@ -630,11 +630,9 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-gray-800">{stock.name}</p>
-                      <p className="font-mono text-[10px] text-gray-400">{stock.code}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-mono text-[12px] font-semibold text-gray-800">{stock.price.toFixed(2)}</p>
-                      <p className="font-mono text-[11px] font-semibold" style={{ color }}>
+                      <p className="font-mono text-[12px] font-semibold" style={{ color }}>
                         {up ? '+' : ''}
                         {stock.changePercent.toFixed(2)}%
                       </p>

@@ -39,7 +39,8 @@ import { StockItem } from '../types';
 import type { HeatSector } from './mockWebData';
 import { formatChineseDate } from '../data';
 import { BrainMark } from './BrainMark';
-import { heatSectors, getRankedStocks, marketTemperature, webIndices, getSectorDetail, type SectorDetail } from './mockWebData';
+import { useLiveIndices } from './useLiveIndices';
+import { heatSectors, getRankedStocks, marketTemperature, getSectorDetail, type SectorDetail } from './mockWebData';
 
 const UP = '#e5484d';
 const DOWN = '#0ca678';
@@ -565,6 +566,30 @@ export function MarketMapPage({ onAskTeacherAboutStock, initialTarget }: MarketM
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [selectedStockCode, setSelectedStockCode] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, left: 0, top: 0, stock: null });
+  // 真实板块数据：/api/sectors 返回约100个行业板块（仅涨跌幅，无个股）
+  const [realSectors, setRealSectors] = useState<Array<{ id: string; name: string; changePercent: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/sectors');
+        if (!res.ok) return;
+        const data = await res.json();
+        const sectors = Array.isArray(data?.sectors) ? data.sectors : [];
+        if (cancelled) return;
+        const cleaned = sectors
+          .filter((s: any) => s && s.name && Number.isFinite(Number(s.changePercent)))
+          .map((s: any) => ({ id: String(s.id || `r-${Math.random()}`), name: String(s.name), changePercent: Number(s.changePercent) }));
+        if (cleaned.length > 0) setRealSectors(cleaned);
+      } catch {
+        // 保持空
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 外部搜索跳转：顶栏搜索到板块/个股后，切到此页并定位选中
   useEffect(() => {
@@ -723,7 +748,8 @@ export function MarketMapPage({ onAskTeacherAboutStock, initialTarget }: MarketM
   const colorOf = (pct: number) => (isUp(pct) ? UP : DOWN);
 
   /* -------- 概览数据 -------- */
-  const overviewIndices = webIndices.slice(0, 3);
+  // 实时指数：与今日大盘页共用同一份实时数据（模块级缓存保证两页一致）
+  const { indices: overviewIndices } = useLiveIndices();
   const upCount = heatSectors.filter((s) => s.changePercent >= 0).length;
   const downCount = heatSectors.length - upCount;
 
@@ -747,14 +773,21 @@ export function MarketMapPage({ onAskTeacherAboutStock, initialTarget }: MarketM
 
           {/* 主要指数 */}
           <div className="flex flex-wrap items-center gap-4">
-            {overviewIndices.map((idx) => (
-              <div key={idx.code} className="flex items-baseline gap-1.5">
-                <span className="text-xs text-gray-500">{idx.name}</span>
-                <span className="font-mono text-sm font-bold" style={{ color: colorOf(idx.changePercent) }}>
-                  {pct(idx.changePercent)}
-                </span>
-              </div>
-            ))}
+            {overviewIndices === null
+              ? Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-baseline gap-1.5">
+                    <span className="h-3 w-16 animate-pulse rounded bg-gray-100" />
+                    <span className="h-4 w-12 animate-pulse rounded bg-gray-100" />
+                  </div>
+                ))
+              : overviewIndices.map((idx) => (
+                  <div key={idx.code} className="flex items-baseline gap-1.5">
+                    <span className="text-xs text-gray-500">{idx.name}</span>
+                    <span className="font-mono text-sm font-bold" style={{ color: colorOf(idx.changePercent) }}>
+                      {pct(idx.changePercent)}
+                    </span>
+                  </div>
+                ))}
           </div>
 
           <div className="ml-auto flex items-center gap-4">
@@ -828,7 +861,7 @@ export function MarketMapPage({ onAskTeacherAboutStock, initialTarget }: MarketM
               ))}
             </div>
 
-            {/* 搜索 */}
+            {/* 搜索框（暂隐藏）
             <div className="relative ml-auto w-full sm:w-56">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -839,6 +872,7 @@ export function MarketMapPage({ onAskTeacherAboutStock, initialTarget }: MarketM
                 className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-indigo-300"
               />
             </div>
+            */}
           </div>
 
           {/* 热力地图卡片 */}
