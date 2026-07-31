@@ -541,27 +541,7 @@ async function callAgentSmart(
     console.warn('[callAgentSmart] InfiniSynapse failed:', e.message);
   }
 
-  // ── 第 2 级：实时行情规则化兜底 ──
-  try {
-    // fetchMarketData 定义在 startServer 内部，通过 globalThis 桥接访问（startServer 启动时挂载）
-    const fetchMarketDataGlobal = (globalThis as any).__paopaoFetchMarketData as
-      | (() => Promise<any>)
-      | undefined;
-    if (!fetchMarketDataGlobal) {
-      console.warn('[callAgentSmart] __paopaoFetchMarketData not mounted yet');
-      throw new Error('__paopaoFetchMarketData not mounted');
-    }
-    const md = await fetchMarketDataGlobal();
-    const hasData = md.indices.length > 0 || md.sectors.length > 0;
-    if (hasData) {
-      const answer = buildMarketDataReply(text, md);
-      return { answer, taskId: '', suggestedPrompts, source: 'market-data' };
-    }
-  } catch (e: any) {
-    console.warn('[callAgentSmart] market-data fallback failed:', e.message);
-  }
-
-  // ── 第 3 级：DeepSeek 兜底 ──
+  // ── 第 2 级：DeepSeek 兜底（InfiniSynapse 未调通时直接接力，不经过实时行情规则化） ──
   try {
     const answer = await callDeepSeek(text, { jsonResult: options?.requirePureText !== true });
     return { answer, taskId: '', suggestedPrompts, source: 'deepseek' };
