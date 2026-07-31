@@ -193,6 +193,8 @@ async function callInfiniSynapse(
     }, (res) => {
       let buffer = '';
       let finalAnswer = '';
+      // 暂存：say=text 完整消息可能是 Agent 任务中的过程文本，不能立即返回
+      let tentativeAnswer = '';
       let receivedCompletion = false;
 
       res.on('data', (chunk: Buffer) => {
@@ -236,21 +238,19 @@ async function callInfiniSynapse(
               // data.message 的结构：{ taskId, message: { type, text, say, ask, ... } }
               const msg = data.message || data.message?.message || {};
 
-              // 只保留最终答案：say=text 且 partial=false；忽略 reasoning / api_req_started 等中间过程
+              // say=text 完整消息可能是 Agent 任务中的过程文本（如"正在收集信息…"），不能立即返回。
+              // 暂存即可，真正的最终答案由 completion_result 结束信号携带。
               if (msg.say === 'text' && msg.partial === false && msg.text) {
-                finalAnswer = msg.text;
-                // 一旦拿到完整 text，立即收尾
-                abortController.abort();
-                resolve(finalAnswer);
-                return;
+                tentativeAnswer = msg.text;
               }
 
               // completion_result 结束信号：等待 partial=false 的最终文本后 resolve
               if (msg.say === 'completion_result') {
                 if (msg.partial === false) {
                   if (msg.text && msg.text !== 'null') finalAnswer = msg.text;
+                  // 若 completion_result 无最终文本，回退到暂存的过程最终答案
                   abortController.abort();
-                  resolve(finalAnswer);
+                  resolve(finalAnswer || tentativeAnswer);
                   return;
                 }
                 // 中间态：不断用非空文本更新 finalAnswer
@@ -265,7 +265,7 @@ async function callInfiniSynapse(
                   finalAnswer = msg.text;
                 }
                 abortController.abort();
-                resolve(finalAnswer);
+                resolve(finalAnswer || tentativeAnswer);
                 return;
               }
             }
@@ -296,8 +296,8 @@ async function callInfiniSynapse(
       });
 
       res.on('end', () => {
-        if (finalAnswer) {
-          resolve(finalAnswer);
+        if (finalAnswer || tentativeAnswer) {
+          resolve(finalAnswer || tentativeAnswer);
         } else {
           reject(new Error('SSE connection ended without completion'));
         }
