@@ -90,27 +90,13 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [storyMode, setStoryMode] = useState<StoryMode>('beginner');
   const [expandedStories, setExpandedStories] = useState<Set<string>>(new Set());
   const [thumbsFeedback, setThumbsFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
-  // 今天发生了什么：优先用后端 /api/morning-report 的真实热点（Agent 基于实时行情分析生成），失败回退 mock
-  // 缓存最近一次成功故事到 localStorage，刷新页面秒显（mock 或上次真实故事），Agent 完成后静默替换
-  const STORIES_CACHE_KEY = 'paopao_recent_stories_v1';
-  const [stories, setStories] = useState<MarketStory[]>(() => {
-    try {
-      const cached = localStorage.getItem(STORIES_CACHE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed as MarketStory[];
-      }
-    } catch { /* ignore */ }
-    return webStories;
-  });
+  // 今天发生了什么：直接请求后端 /api/morning-report 的真实热点（Agent 基于实时行情分析生成），等待期间显示 loading
+  const [stories, setStories] = useState<MarketStory[]>(webStories);
   const [storiesLoading, setStoriesLoading] = useState(false);
 
-  // 应用新故事：更新 state + 写入 localStorage（下次刷新直接秒显）
+  // 应用新故事：更新 state（不再写 localStorage，避免刷新后先显示旧缓存）
   const applyStories = (next: MarketStory[]) => {
     setStories(next);
-    try {
-      localStorage.setItem(STORIES_CACHE_KEY, JSON.stringify(next));
-    } catch { /* ignore */ }
   };
 
   const loadStories = async (force = false) => {
