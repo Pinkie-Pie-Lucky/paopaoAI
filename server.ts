@@ -523,7 +523,14 @@ type AgentResult = { answer: string; taskId: string; suggestedPrompts: string[];
 
 async function callAgentSmart(
   text: string,
-  options?: { history?: Array<{ role: string; content: string }>; taskId?: string; connId?: string; requirePureText?: boolean }
+  options?: {
+    history?: Array<{ role: string; content: string }>;
+    taskId?: string;
+    connId?: string;
+    requirePureText?: boolean;
+    /** 要求 AI 输出严格 JSON（用于 morning-report 等结构化结果） */
+    jsonResult?: boolean;
+  }
 ): Promise<AgentResult> {
   const suggestedPrompts = [
     '再详细分析一下底层逻辑',
@@ -531,19 +538,35 @@ async function callAgentSmart(
     '对比历史走势怎么看？',
   ];
 
+  /** 校验答案是否满足格式要求：纯文本场景非全JSON即可；JSON场景必须可解析为对象 */
+  const isAnswerUsable = (answer: string): boolean => {
+    if (!answer || !answer.trim()) return false;
+    if (options?.jsonResult) {
+      try {
+        const parsed = JSON.parse(answer.replace(/```json\s*/gi, '').replace(/```/g, '').trim());
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+      } catch {
+        return false;
+      }
+    }
+    return !/^\s*\{[\s\S]*\}\s*$/.test(answer);
+  };
+
   // ── 第 1 级：InfiniSynapse Agent ──
   try {
     const r = await callInfiniSynapse(text, options);
-    if (r.answer && r.answer.trim() && !/^\s*\{[\s\S]*\}\s*$/.test(r.answer) || (options?.requirePureText !== true && r.answer)) {
+    if (isAnswerUsable(r.answer)) {
       return { answer: r.answer.trim(), taskId: r.taskId, suggestedPrompts: r.suggestedPrompts, source: 'infini' };
     }
+    // 答案不符合格式（如超时返回的过程文本、非完整 JSON），视为无效继续下一级
+    console.warn('[callAgentSmart] InfiniSynapse answer not usable, falling back to DeepSeek:', (r.answer || '').slice(0, 80));
   } catch (e: any) {
     console.warn('[callAgentSmart] InfiniSynapse failed:', e.message);
   }
 
-  // ── 第 2 级：DeepSeek 兜底（InfiniSynapse 未调通时直接接力，不经过实时行情规则化） ──
+  // ── 第 2 级：DeepSeek 兜底（InfiniSynapse 未调通或答案不符时直接接力，不经过实时行情规则化） ──
   try {
-    const answer = await callDeepSeek(text, { jsonResult: options?.requirePureText !== true });
+    const answer = await callDeepSeek(text, { jsonResult: options?.jsonResult || false });
     return { answer, taskId: '', suggestedPrompts, source: 'deepseek' };
   } catch (e: any) {
     console.warn('[callAgentSmart] DeepSeek fallback failed:', e.message);
@@ -1850,7 +1873,7 @@ async function startServer() {
         // 单次 AI 任务：走兜底链（InfiniSynapse 优先，超时/失败后直接 DeepSeek 接力）
         const smart = await callAgentSmart(
           `${MEGA_REPORT_PROMPT}\n\n===== MarketSnapshot 输入数据 =====\n${marketInput}`,
-          { requirePureText: true },
+          { jsonResult: true },
         );
         // SSE 文本可能包裹 JSON，提取第一个 { ... } 对象或代码块
         let raw = smart.answer.trim();
