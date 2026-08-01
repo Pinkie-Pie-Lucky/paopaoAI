@@ -470,7 +470,8 @@ async function callDeepSeek(
       { role: 'user', content: text },
     ],
     temperature: 0.6,
-    max_tokens: 1500,
+    // 完整 MEGA 报告 JSON（3故事+因果链+小白/专业表达）需要较多 token，1500 会被截断导致 JSON.parse 失败
+    max_tokens: 4000,
   };
   return new Promise((resolve, reject) => {
     const u = new URL('https://api.deepseek.com/chat/completions');
@@ -567,7 +568,12 @@ async function callAgentSmart(
   // ── 第 2 级：DeepSeek 兜底（InfiniSynapse 未调通或答案不符时直接接力，不经过实时行情规则化） ──
   try {
     const answer = await callDeepSeek(text, { jsonResult: options?.jsonResult || false });
-    return { answer, taskId: '', suggestedPrompts, source: 'deepseek' };
+    // DeepSeek 输出同样要过格式校验（如 JSON 被 token 截断则不可用），避免把残缺 JSON 当成功返回
+    if (isAnswerUsable(answer)) {
+      return { answer, taskId: '', suggestedPrompts, source: 'deepseek' };
+    }
+    console.warn('[callAgentSmart] DeepSeek answer not usable (truncated JSON?), length=', answer.length);
+    throw new Error('DeepSeek answer not usable');
   } catch (e: any) {
     console.warn('[callAgentSmart] DeepSeek fallback failed:', e.message);
   }
