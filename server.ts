@@ -1837,6 +1837,8 @@ async function startServer() {
     const now = Date.now();
     // refresh=1 强制绕过缓存（供前端 15 分钟定时刷新使用）
     const forceRefresh = req.query.refresh === '1';
+    // 禁止浏览器/代理缓存该接口，保证每次刷新都真正请求后端（否则 GET 会被浏览器拦截返回旧内容，静默替换不触发）
+    res.setHeader('Cache-Control', 'no-store');
     if (!forceRefresh && morningReportCache && (now - morningReportCache.timestamp) < REPORT_CACHE_TTL) {
       console.log(`[morning-report] served from cache, data.sentiment=${morningReportCache.data.sentiment}, summaryLen=${morningReportCache.data.summaryText?.length || 0}`);
       return res.json(morningReportCache.data);

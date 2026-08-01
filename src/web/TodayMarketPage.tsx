@@ -116,7 +116,8 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const loadStories = async (force = false) => {
     try {
       setStoriesLoading(true);
-      const res = await fetch(`/api/morning-report${force ? '?refresh=1' : ''}`);
+      // cache: 'no-store' 禁止浏览器缓存，保证每次刷新都重新请求后端（否则 GET 会被浏览器拦截返回旧响应）
+      const res = await fetch(`/api/morning-report${force ? '?refresh=1' : ''}`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data?.stories) || data.stories.length === 0) return;
@@ -135,7 +136,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
       // 后台静默刷新；AI 完成后替换内容，不阻塞首屏
       try {
         setStoriesLoading(true);
-        const res = await fetch('/api/morning-report?refresh=1');
+        const res = await fetch('/api/morning-report?refresh=1', { cache: 'no-store' });
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (cancelled || !Array.isArray(data?.stories) || data.stories.length === 0) return;
