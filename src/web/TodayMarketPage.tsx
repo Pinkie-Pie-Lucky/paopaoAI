@@ -91,8 +91,27 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   const [expandedStories, setExpandedStories] = useState<Set<string>>(new Set());
   const [thumbsFeedback, setThumbsFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   // 今天发生了什么：优先用后端 /api/morning-report 的真实热点（Agent 基于实时行情分析生成），失败回退 mock
-  const [stories, setStories] = useState<MarketStory[]>(webStories);
+  // 缓存最近一次成功故事到 localStorage，刷新页面秒显（mock 或上次真实故事），Agent 完成后静默替换
+  const STORIES_CACHE_KEY = 'paopao_recent_stories_v1';
+  const [stories, setStories] = useState<MarketStory[]>(() => {
+    try {
+      const cached = localStorage.getItem(STORIES_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed as MarketStory[];
+      }
+    } catch { /* ignore */ }
+    return webStories;
+  });
   const [storiesLoading, setStoriesLoading] = useState(false);
+
+  // 应用新故事：更新 state + 写入 localStorage（下次刷新直接秒显）
+  const applyStories = (next: MarketStory[]) => {
+    setStories(next);
+    try {
+      localStorage.setItem(STORIES_CACHE_KEY, JSON.stringify(next));
+    } catch { /* ignore */ }
+  };
 
   const loadStories = async (force = false) => {
     try {
@@ -101,7 +120,7 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data?.stories) || data.stories.length === 0) return;
-      setStories(data.stories as MarketStory[]);
+      applyStories(data.stories as MarketStory[]);
     } catch {
       // 保持 mock
     } finally {
@@ -112,14 +131,15 @@ export function TodayMarketPage({ followedStocks, onAskTeacherAboutStock }: Toda
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 首次加载（用户刷新页面）始终拉取
+      // 首次加载（刷新页面）：内容已在 state 初始化时秒显（缓存/上次真实故事），
+      // 后台静默刷新；AI 完成后替换内容，不阻塞首屏
       try {
         setStoriesLoading(true);
         const res = await fetch('/api/morning-report?refresh=1');
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (cancelled || !Array.isArray(data?.stories) || data.stories.length === 0) return;
-        setStories(data.stories as MarketStory[]);
+        applyStories(data.stories as MarketStory[]);
       } catch {
         // 保持 mock
       } finally {

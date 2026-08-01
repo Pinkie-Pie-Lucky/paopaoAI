@@ -201,7 +201,7 @@ async function callInfiniSynapse(
       let finalAnswer = '';
       let tentativeAnswer = '';
       let receivedCompletion = false;
-      // 静默兜底：收到阶段答案后持续 25 秒无结束信号则返回暂存答案，避免无限等待
+      // 静默兜底：收到阶段答案后持续 15 秒无结束信号则返回暂存答案，避免无限等待
       let silenceTimer: NodeJS.Timeout | null = null;
       const armSilenceTimer = () => {
         if (silenceTimer) clearTimeout(silenceTimer);
@@ -210,9 +210,9 @@ async function callInfiniSynapse(
             abortController.abort();
             resolve(finalAnswer || tentativeAnswer);
           }
-        }, 25000);
+        }, 15000);
       };
-      // 全局总超时：无论是否收到任何消息，90 秒后强制结束，防止 SSE 永久挂起
+      // 全局总超时：无论是否收到任何消息，15 秒后强制结束（超时后由上层直接走 DeepSeek 兜底）
       // 注意：必须 resolve 而非 reject，避免出现内容时的超时被当成失败
       const globalTimeout = setTimeout(() => {
         if (finalAnswer || tentativeAnswer) {
@@ -220,9 +220,9 @@ async function callInfiniSynapse(
           resolve(finalAnswer || tentativeAnswer);
         } else {
           abortController.abort();
-          reject(new Error('InfiniSynapse timeout: no response within 90s'));
+          reject(new Error('InfiniSynapse timeout: no response within 15s'));
         }
-      }, 90000);
+      }, 15000);
       // 每次产生新的最终答案都重新计时
       const bumpTentative = (v: string) => {
         tentativeAnswer = v;
@@ -1847,18 +1847,19 @@ async function startServer() {
       let megaResult: any = null;
 
       try {
-        // 单次 InfiniSynapse Agent 任务：完整执行 发现故事→因果链→小白/专业表达
-        const infini = await callInfiniSynapse(
+        // 单次 AI 任务：走兜底链（InfiniSynapse 优先，超时/失败后直接 DeepSeek 接力）
+        const smart = await callAgentSmart(
           `${MEGA_REPORT_PROMPT}\n\n===== MarketSnapshot 输入数据 =====\n${marketInput}`,
+          { requirePureText: true },
         );
         // SSE 文本可能包裹 JSON，提取第一个 { ... } 对象或代码块
-        let raw = infini.answer.trim();
+        let raw = smart.answer.trim();
         const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
         if (fenced) raw = fenced[1].trim();
         megaResult = JSON.parse(raw.replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
         if (!megaResult || typeof megaResult !== 'object') throw new Error('Invalid mega result');
       } catch (error: any) {
-        console.error('[morning-report] InfiniSynapse mega-task failed:', error.message);
+        console.error('[morning-report] AI mega-task failed:', error.message);
         fallback = true;
       }
 
