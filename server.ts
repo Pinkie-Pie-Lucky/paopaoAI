@@ -623,12 +623,11 @@ function buildMarketDataReply(text: string, md: any): string {
   ].filter(Boolean).join('\n');
 }
 
-async function startServer() {
+async function createApp() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 8080;
 
   // 挂载 fetchMarketData 到 globalThis，供模块级 callAgentSmart 兜底链运行时访问
-  // （fetchMarketData 定义在 startServer 内部，模块级函数无法直接引用）
+  // （fetchMarketData 定义在 createApp 内部，模块级函数无法直接引用）
   async function globalFetchMarketData() {
     return fetchMarketData();
   }
@@ -2298,24 +2297,39 @@ async function startServer() {
   });
 
 
-  // Vite middleware integration for full-stack build/dev environment
-  if (process.env.NODE_ENV !== 'production') {
+  // 静态托管与 SPA fallback —— 仅在自托管（本地 / 非 Vercel）时由 Express 托管 dist。
+  // 在 Vercel 上由 Vercel 直接托管前端静态资源，本函数只处理 /api/*（见 vercel.json + api/index.ts）。
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
+  return app;
+}
+
+/** 自托管 / 本地开发：创建 app 后监听端口。Vercel serverless 环境不调用此函数。 */
+async function startServer() {
+  const app = await createApp();
+  const PORT = Number(process.env.PORT) || 8080;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Paopao Server] Running at http://localhost:${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
   });
 }
 
-startServer();
+// 本地 / 自托管直接运行：tsx server.ts 或 node dist/server.cjs；Vercel 由 api/index.ts 调用 createApp。
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default createApp;
